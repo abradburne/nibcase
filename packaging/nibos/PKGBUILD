@@ -1,0 +1,118 @@
+# nibcase for nibOS (Arch Linux ARM, aarch64): the player, and one small package per core that
+# registers it with DSlot. The cores themselves are separate packages (Arch Linux ARM's, or
+# built pinned from packaging/cores/<core>/PKGBUILD).
+#
+# Built from this checkout: prepare() copies the sources into $srcdir, so the build never writes
+# to the repository. Dependencies are fetched once, at the versions Cargo.lock pins (nibkit from
+# its repository, at the tag Cargo.toml names), and the build itself runs offline. On an aarch64
+# Arch machine:
+#
+#   cd packaging/nibos && PKGDEST="$PWD/out" BUILDDIR="$HOME/makepkg-build" makepkg -f --nodeps
+pkgbase=nibcase
+pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed)
+pkgver=0.1.0
+pkgrel=18
+arch=(aarch64)
+url='https://github.com/abradburne/nibcase'
+license=(MIT OFL-1.1)
+makedepends=(cargo gcc sdl2-compat)
+_root=$(cd "$startdir/../.." && pwd)
+prepare() {
+    rm -rf "$srcdir/nibcase"
+    mkdir -p "$srcdir/nibcase/packaging/nibos"
+    cp -r "$_root"/{Cargo.toml,Cargo.lock,crates,third_party,README.md,CHANGELOG.md,LICENSE,THIRD-PARTY.md,docs} "$srcdir/nibcase/"
+    cp "$_root/packaging/nibos/90-nibcase-cores.hook" "$srcdir/nibcase/packaging/nibos/"
+    cd "$srcdir/nibcase"
+    cargo fetch --locked --target aarch64-unknown-linux-gnu
+}
+build() {
+    cd "$srcdir/nibcase"
+    # package() installs from target/: a CARGO_TARGET_DIR from the environment would move it.
+    export CARGO_TARGET_DIR="$srcdir/nibcase/target"
+    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo build --release --workspace --frozen
+}
+check() {
+    cd "$srcdir/nibcase"
+    export CARGO_TARGET_DIR="$srcdir/nibcase/target"
+    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo test --release --workspace --frozen
+}
+package_nibcase() {
+    pkgdesc='Dual-screen libretro player for nibOS, with automatic DSlot integration'
+    depends=(sdl2-compat)
+    optdepends=('nibcase-snes9x: SNES core (separate noncommercial licence)' 'nibcase-nestopia: NES and Disk System core' 'nibcase-blastem: Mega Drive core' 'nibcase-gearsystem: Game Gear, Master System and SG-1000 core' 'nibcase-handy: Lynx core (requires BIOS)' 'nibcase-gw: Game & Watch core' 'nibcase-beetle-pce-fast: PC Engine and PC Engine CD core' 'nibcase-beetle-ngp: Neo Geo Pocket core' 'nibcase-beetle-wswan: WonderSwan core' 'nibcase-pcsx-rearmed: PlayStation core')
+    cd "$srcdir/nibcase"
+    install -Dm755 -t "$pkgdir/usr/bin" target/release/nibcase target/release/nibcase-test
+    install -Dm644 packaging/nibos/90-nibcase-cores.hook "$pkgdir/usr/share/libalpm/hooks/90-nibcase-cores.hook"
+    install -Dm644 -t "$pkgdir/usr/share/doc/nibcase" README.md CHANGELOG.md docs/*.md
+    install -Dm644 -t "$pkgdir/usr/share/licenses/nibcase" LICENSE THIRD-PARTY.md third_party/OFL.txt
+    install -Dm644 third_party/libretro/libretro.h "$pkgdir/usr/share/licenses/nibcase/libretro.h"
+}
+package_nibcase-snes9x() {
+    pkgdesc='Snes9x core for nibcase and DSlot (noncommercial core licence)'
+    depends=(nibcase libretro-snes9x)
+    license=(custom:Snes9x)
+    install -Dm644 "$_root/packaging/cores/snes9x/README.md" "$pkgdir/usr/share/doc/nibcase-snes9x/README.md"
+}
+
+package_nibcase-nestopia() {
+    pkgdesc='Nestopia NES core for nibcase and DSlot'
+    depends=(nibcase libretro-nestopia)
+    license=(GPL-2.0-or-later)
+    install -Dm644 "$_root/packaging/cores/nestopia/README.md" "$pkgdir/usr/share/doc/nibcase-nestopia/README.md"
+}
+
+package_nibcase-blastem() {
+    pkgdesc='Mega Drive core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-blastem)
+    license=(GPL-3.0-or-later)
+    install -Dm644 "$_root/packaging/cores/blastem/README.md" "$pkgdir/usr/share/doc/nibcase-blastem/README.md"
+}
+
+package_nibcase-gearsystem() {
+    pkgdesc='Game Gear and Master System core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-gearsystem)
+    license=(GPL-3.0-or-later)
+    install -Dm644 "$_root/packaging/cores/gearsystem/README.md" "$pkgdir/usr/share/doc/nibcase-gearsystem/README.md"
+}
+
+package_nibcase-handy() {
+    pkgdesc='Lynx core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-handy)
+    license=(Zlib)
+    install -Dm644 "$_root/packaging/cores/handy/README.md" "$pkgdir/usr/share/doc/nibcase-handy/README.md"
+}
+
+package_nibcase-gw() {
+    pkgdesc='Game & Watch core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-gw)
+    license=(Zlib)
+    install -Dm644 "$_root/packaging/cores/gw/README.md" "$pkgdir/usr/share/doc/nibcase-gw/README.md"
+}
+
+package_nibcase-beetle-pce-fast() {
+    pkgdesc='PC Engine and PC Engine CD core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-beetle-pce-fast)
+    license=(GPL-2.0-only)
+    install -Dm644 "$_root/packaging/cores/beetle-pce-fast/README.md" "$pkgdir/usr/share/doc/nibcase-beetle-pce-fast/README.md"
+}
+
+package_nibcase-beetle-ngp() {
+    pkgdesc='Neo Geo Pocket core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-beetle-ngp)
+    license=(GPL-2.0-only)
+    install -Dm644 "$_root/packaging/cores/beetle-ngp/README.md" "$pkgdir/usr/share/doc/nibcase-beetle-ngp/README.md"
+}
+
+package_nibcase-beetle-wswan() {
+    pkgdesc='WonderSwan core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-beetle-wswan)
+    license=(GPL-2.0-only)
+    install -Dm644 "$_root/packaging/cores/beetle-wswan/README.md" "$pkgdir/usr/share/doc/nibcase-beetle-wswan/README.md"
+}
+
+package_nibcase-pcsx-rearmed() {
+    pkgdesc='PlayStation core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-pcsx-rearmed)
+    license=(GPL-2.0-only)
+    install -Dm644 "$_root/packaging/cores/pcsx-rearmed/README.md" "$pkgdir/usr/share/doc/nibcase-pcsx-rearmed/README.md"
+}

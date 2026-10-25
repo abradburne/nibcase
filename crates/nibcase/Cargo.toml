@@ -1,0 +1,30 @@
+[package]
+name = "nibcase"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+default = ["nibos", "dslot", "net-control"]
+nibos = ["nibkit/nibos"]
+# The menu's Connections page (Wi-Fi, Bluetooth): nibOS only.
+net-control = ["nibkit/net-control"]
+desktop = ["nibkit/desktop"]
+stock = ["nibkit/stock"]
+dslot = ["nibkit/dslot"]
+
+[dependencies]
+nibcase-libretro = { path = "../nibcase-libretro" }
+# nibOS's SDK library (github.com/abradburne/nibkit, MIT): the screens, buttons, touch, menu,
+# settings and DSlot descriptions. To build against a local checkout, see CONTRIBUTING.md.
+nibkit = { git = "https://github.com/abradburne/nibkit", tag = "v0.1.0", default-features = false, features = ["menu-raster"] }
+sdl2 = { version = "0.38", features = ["unsafe_textures"] }
+libc = "0.2"
+png = "0.17"
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+signal-hook = "0.4.4"
+
+[dev-dependencies]
+nibcase-libretro = { path = "../nibcase-libretro", features = ["testing"] }

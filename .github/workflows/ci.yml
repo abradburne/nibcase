@@ -1,0 +1,61 @@
+# Format, lint and test the three builds on every push and pull request; check that every commit
+# of a pull request is signed off (the DCO, CONTRIBUTING.md).
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo fmt --all --check
+      # nibOS (the default features), with every test and the C test core.
+      - run: cargo clippy --workspace --all-targets --locked -- -D warnings
+      - run: cargo test --workspace --locked
+      # The desktop preview and the RG DS+'s stock OS.
+      - run: cargo clippy -p nibcase --no-default-features --features desktop,dslot --all-targets --locked -- -D warnings
+      - run: cargo clippy -p nibcase --no-default-features --features stock,dslot --all-targets --locked -- -D warnings
+      - run: cargo test -p nibcase --no-default-features --features desktop,dslot --locked
+
+  # The nibOS build natively on arm64, as the handheld runs it.
+  arm64:
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v4
+      - name: SDL2
+        run: sudo apt-get update && sudo apt-get install -y libsdl2-dev
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace --locked --release
+
+  # Every commit of a pull request carries a Signed-off-by: line (git commit -s).
+  dco:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Signed off
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          missing=0
+          for c in $(git rev-list --no-merges "$BASE..$HEAD"); do
+            if ! git log -1 --format=%B "$c" | grep -q '^Signed-off-by: '; then
+              echo "::error::$(git log -1 --format='%h %s' "$c"): no Signed-off-by: line (git commit -s)"
+              missing=1
+            fi
+          done
+          exit $missing

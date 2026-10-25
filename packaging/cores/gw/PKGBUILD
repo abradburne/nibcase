@@ -1,0 +1,20 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Game & Watch: runs MADrigal's simulators converted to .mgw files (the player supplies them).
+pkgname=libretro-gw
+pkgver=1.6.3
+pkgrel=1
+pkgdesc='gw-libretro Game & Watch core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/gw-libretro'
+license=(Zlib)
+depends=(glibc)
+makedepends=(git)
+source=("gw::git+https://github.com/libretro/gw-libretro.git#commit=91d599b951e7bfe7e040347f58667cba20074adc")
+sha256sums=('SKIP')
+build() {
+    make -C "$srcdir/gw" -f Makefile.libretro platform=unix CC='gcc -mcpu=cortex-a55'
+}
+package() {
+    install -Dm755 "$srcdir/gw/gw_libretro.so" "$pkgdir/usr/lib/libretro/gw_libretro.so"
+    install -Dm644 "$srcdir/gw/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

@@ -1,0 +1,19 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+pkgname=libretro-handy
+pkgver=20261020
+pkgrel=1
+pkgdesc='handy libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/libretro-handy'
+license=(Zlib)
+depends=(gcc-libs)
+makedepends=(git)
+source=("handy::git+https://github.com/libretro/libretro-handy.git#commit=bc55d462f0b2d6b073ea93dc552ebd73cec60fd1")
+sha256sums=('SKIP')
+build() {
+    make -C "$srcdir/handy/." platform=unix CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55'
+}
+package() {
+    install -Dm755 "$srcdir/handy/./handy_libretro.so" "$pkgdir/usr/lib/libretro/handy_libretro.so"
+    install -Dm644 "$srcdir/handy/lynx/license.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

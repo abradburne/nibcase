@@ -1,0 +1,20 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# WonderSwan and WonderSwan Color; no BIOS needed.
+pkgname=libretro-beetle-wswan
+pkgver=20261021
+pkgrel=1
+pkgdesc='Beetle Cygne (WonderSwan) libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/beetle-wswan-libretro'
+license=(GPL-2.0-only)
+depends=(gcc-libs)
+makedepends=(git)
+source=("wswan::git+https://github.com/libretro/beetle-wswan-libretro.git#commit=4b01295838ea89e3f1355bbe4cb5cf98aa6108cd")
+sha256sums=('SKIP')
+build() {
+    make -C "$srcdir/wswan" platform=unix CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55'
+}
+package() {
+    install -Dm755 "$srcdir/wswan/mednafen_wswan_libretro.so" "$pkgdir/usr/lib/libretro/mednafen_wswan_libretro.so"
+    install -Dm644 "$srcdir/wswan/COPYING" "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}

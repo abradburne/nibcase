@@ -1,0 +1,20 @@
+[package]
+name = "nibcase-libretro"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+libloading = "0.8.9"
+zip = { version = "2.4.2", default-features = false, features = ["deflate-miniz"] }
+
+[features]
+# The test core and its games, for tests (this crate's and the player's).
+testing = []
+
+[dev-dependencies]
+nibcase-libretro = { path = ".", features = ["testing"] }
+
+[build-dependencies]
+cc = "1"

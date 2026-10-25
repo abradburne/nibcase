@@ -1,0 +1,8 @@
+/target/
+/dist/
+.DS_Store
+/packaging/nibos/out/
+/tools/bindings/target/
+/tools/bindings/Cargo.lock
+# This machine's Cargo settings: a [patch] for a local nibkit checkout (CONTRIBUTING.md).
+/.cargo/config.toml

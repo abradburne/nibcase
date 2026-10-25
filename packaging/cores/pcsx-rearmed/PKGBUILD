@@ -1,0 +1,26 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Arch Linux ARM's libretro-pcsx-rearmed was built in 2016; this one replaces it.
+pkgname=libretro-pcsx-rearmed-nibos
+pkgver=20261001
+pkgrel=1
+pkgdesc='PCSX ReARMed (PlayStation) libretro core for nibOS, with the ARM64 dynarec'
+arch=(aarch64)
+url='https://github.com/libretro/pcsx_rearmed'
+license=(GPL-2.0-only)
+depends=(gcc-libs)
+makedepends=(git)
+provides=(libretro-pcsx-rearmed)
+conflicts=(libretro-pcsx-rearmed)
+source=("pcsx::git+https://github.com/libretro/pcsx_rearmed.git#commit=c8816799b50388e61cfe237fe2cdbb7d8175f20a")
+sha256sums=('SKIP')
+prepare() {
+    cd "$srcdir/pcsx"
+    git submodule update --init --recursive
+}
+build() {
+    make -C "$srcdir/pcsx" -f Makefile.libretro platform=unix
+}
+package() {
+    install -Dm755 "$srcdir/pcsx/pcsx_rearmed_libretro.so" "$pkgdir/usr/lib/libretro/pcsx_rearmed_libretro.so"
+    install -Dm644 "$srcdir/pcsx/COPYING" "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}

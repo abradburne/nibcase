@@ -1,0 +1,23 @@
+# Re-query installed cores rather than shipping a stale copy of their options.
+[Trigger]
+Operation = Install
+Operation = Upgrade
+Operation = Remove
+Type = Path
+Target = usr/bin/nibcase
+Target = usr/lib/libretro/snes9x_libretro.so
+Target = usr/lib/libretro/nestopia_libretro.so
+
+Target = usr/lib/libretro/blastem_libretro.so
+Target = usr/lib/libretro/gearsystem_libretro.so
+Target = usr/lib/libretro/handy_libretro.so
+Target = usr/lib/libretro/gw_libretro.so
+Target = usr/lib/libretro/mednafen_pce_fast_libretro.so
+Target = usr/lib/libretro/mednafen_ngp_libretro.so
+Target = usr/lib/libretro/mednafen_wswan_libretro.so
+Target = usr/lib/libretro/pcsx_rearmed_libretro.so
+
+[Action]
+Description = Refreshing nibcase core integrations for DSlot...
+When = PostTransaction
+Exec = /bin/sh -c 'if [ -x /usr/bin/nibcase-test ]; then /usr/bin/nibcase-test --sync /usr/share/dslot/emulators; else rm -f /usr/share/dslot/emulators/nibcase-snes9x.toml /usr/share/dslot/emulators/nibcase-nestopia.toml /usr/share/dslot/emulators/nibcase-blastem.toml /usr/share/dslot/emulators/nibcase-gearsystem.toml /usr/share/dslot/emulators/nibcase-handy.toml /usr/share/dslot/emulators/nibcase-gw.toml /usr/share/dslot/emulators/nibcase-mednafen_pce_fast.toml /usr/share/dslot/emulators/nibcase-mednafen_ngp.toml /usr/share/dslot/emulators/nibcase-mednafen_wswan.toml /usr/share/dslot/emulators/nibcase-pcsx_rearmed.toml; fi'

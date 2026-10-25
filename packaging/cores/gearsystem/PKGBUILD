@@ -1,0 +1,19 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+pkgname=libretro-gearsystem
+pkgver=20261020
+pkgrel=1
+pkgdesc='gearsystem libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/drhelius/Gearsystem'
+license=(GPL-3.0-or-later)
+depends=(gcc-libs)
+makedepends=(git)
+source=("gearsystem::git+https://github.com/drhelius/Gearsystem.git#commit=66fe79082349e1365af3ac9fd26ea526b3cc7233")
+sha256sums=('SKIP')
+build() {
+    make -C "$srcdir/gearsystem/platforms/libretro" platform=unix CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55'
+}
+package() {
+    install -Dm755 "$srcdir/gearsystem/platforms/libretro/gearsystem_libretro.so" "$pkgdir/usr/lib/libretro/gearsystem_libretro.so"
+    install -Dm644 "$srcdir/gearsystem/LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

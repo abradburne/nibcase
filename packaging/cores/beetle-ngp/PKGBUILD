@@ -1,0 +1,20 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Neo Geo Pocket and Pocket Color; no BIOS needed.
+pkgname=libretro-beetle-ngp
+pkgver=20261021
+pkgrel=1
+pkgdesc='Beetle NeoPop (Neo Geo Pocket) libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/beetle-ngp-libretro'
+license=(GPL-2.0-only)
+depends=(gcc-libs)
+makedepends=(git)
+source=("ngp::git+https://github.com/libretro/beetle-ngp-libretro.git#commit=a50d5ac288a81f2104ddf43195a4efdd15c72227")
+sha256sums=('SKIP')
+build() {
+    make -C "$srcdir/ngp" platform=unix CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55'
+}
+package() {
+    install -Dm755 "$srcdir/ngp/mednafen_ngp_libretro.so" "$pkgdir/usr/lib/libretro/mednafen_ngp_libretro.so"
+    install -Dm644 "$srcdir/ngp/COPYING" "$pkgdir/usr/share/licenses/$pkgname/COPYING"
+}
