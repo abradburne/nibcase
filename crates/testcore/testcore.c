@@ -12,6 +12,8 @@ static retro_input_poll_t poll;
 static retro_input_state_t input;
 static unsigned frame, format, mode;
 static unsigned char sram[16], rtc[8];
+/* The console's work RAM, for RetroAchievements: [0] the frame, [1] the A button. */
+static unsigned char wram[64];
 static uint32_t pixels[8];
 static unsigned char content[4];
 static const struct retro_core_option_v2_category categories[] = {
@@ -100,6 +102,16 @@ bool retro_load_game(const struct retro_game_info *g) {
         env(RETRO_ENVIRONMENT_SET_DISK_CONTROL_EXT_INTERFACE,&d);
     }
     if(mode==4) { uint64_t q=RETRO_SERIALIZATION_QUIRK_SINGLE_SESSION; env(RETRO_ENVIRONMENT_SET_SERIALIZATION_QUIRKS,&q); }
+    /* Mode 11 maps its work RAM where a Super Nintendo's is, $7E0000 (and its mirror at
+       $7F0000, which the select bits leave out), as a core with a memory map does. */
+    memset(wram,0,sizeof(wram));
+    if(mode==11) {
+        static struct retro_memory_descriptor d[1];
+        d[0]=(struct retro_memory_descriptor){.flags=RETRO_MEMDESC_SYSTEM_RAM, .ptr=wram,
+            .start=0x7E0000, .select=0xFE0000, .len=sizeof(wram)};
+        struct retro_memory_map map={d, 1};
+        env(RETRO_ENVIRONMENT_SET_MEMORY_MAPS,&map);
+    }
     return true;
 }
 void retro_unload_game(void) {}
@@ -120,6 +132,8 @@ void retro_run(void) {
     sram[3]=(unsigned char)frame;
     sram[9]=(unsigned char)disc;
     sram[10]=(unsigned char)port0;
+    wram[0]=(unsigned char)frame;
+    wram[1]=sram[0];
     /* Mode 8 echoes the pointer: x and y (little-endian) and whether it is pressed. */
     if(mode==8) {
         /* Read on port 2, as gw-libretro does: the pointer isn't a player's. */
@@ -152,5 +166,5 @@ bool retro_serialize(void *p,size_t n) { if(n!=4)return false; memcpy(p,&frame,4
 bool retro_unserialize(const void *p,size_t n) { if(n!=4)return false; memcpy(&frame,p,4); return true; }
 /* Mode 6 shows no battery RAM until a frame has run, as some cores do. */
 static int hidden(void) { return mode==6 && frame==0; }
-void *retro_get_memory_data(unsigned id) { return hidden()?0:id==RETRO_MEMORY_SAVE_RAM?sram:id==RETRO_MEMORY_RTC?rtc:0; }
-size_t retro_get_memory_size(unsigned id) { return hidden()?0:id==RETRO_MEMORY_SAVE_RAM?sizeof(sram):id==RETRO_MEMORY_RTC?sizeof(rtc):0; }
+void *retro_get_memory_data(unsigned id) { return hidden()?0:id==RETRO_MEMORY_SAVE_RAM?sram:id==RETRO_MEMORY_RTC?rtc:id==RETRO_MEMORY_SYSTEM_RAM?wram:0; }
+size_t retro_get_memory_size(unsigned id) { return hidden()?0:id==RETRO_MEMORY_SAVE_RAM?sizeof(sram):id==RETRO_MEMORY_RTC?sizeof(rtc):id==RETRO_MEMORY_SYSTEM_RAM?sizeof(wram):0; }

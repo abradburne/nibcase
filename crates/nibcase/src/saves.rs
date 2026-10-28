@@ -13,6 +13,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 const MAGIC: &[u8; 8] = b"NIBSTATE";
 const LIMIT: usize = 64 * 1024 * 1024;
+/// RetroAchievements' progress is a few kilobytes for the biggest sets; this is far beyond.
+const PROGRESS_LIMIT: usize = 4 * 1024 * 1024;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Metadata {
@@ -25,11 +27,19 @@ pub struct Metadata {
     #[serde(with = "hex")]
     pub state_hash: u64,
 }
+/// A save state: the core's own bytes, what made it, its picture, and RetroAchievements'
+/// progress in the game's set when a session was on (rcheevos' bytes), so a half-earned
+/// achievement goes on from where the state was.
+///
+/// On disk: `NIBSTATE`, the container's version, the sections' lengths, then the sections:
+/// version 1 has three (metadata, picture, core), version 2 a fourth, the progress. A state
+/// without progress is written as version 1, which every nibcase reads.
 #[derive(Clone)]
 pub struct State {
     pub metadata: Metadata,
     pub picture: Frame,
     pub data: Vec<u8>,
+    pub progress: Option<Vec<u8>>,
 }
 pub fn hash(data: &[u8]) -> u64 {
     data.iter().fold(0xcbf29ce484222325, |h, b| {
@@ -79,7 +89,12 @@ fn thumbnail(frame: &Frame) -> Frame {
     }
 }
 impl State {
-    pub fn capture(core: &mut Core, game_hash: u64, seconds: u64) -> Result<Self, String> {
+    pub fn capture(
+        core: &mut Core,
+        game_hash: u64,
+        seconds: u64,
+        progress: Option<Vec<u8>>,
+    ) -> Result<Self, String> {
         let data = core.serialize()?;
         Ok(Self {
             metadata: Metadata {
@@ -95,6 +110,7 @@ impl State {
             },
             picture: thumbnail(core.frame()),
             data,
+            progress,
         })
     }
     pub fn encode(&self) -> Result<Vec<u8>, String> {
@@ -102,59 +118,75 @@ impl State {
             .map_err(|e| e.to_string())?
             .into_bytes();
         let picture = png(&self.picture)?;
-        if meta.len() > 65536 || picture.len() > 16 * 1024 * 1024 || self.data.len() > LIMIT {
+        let progress = self.progress.as_deref();
+        if meta.len() > 65536
+            || picture.len() > 16 * 1024 * 1024
+            || self.data.len() > LIMIT
+            || progress.is_some_and(|p| p.len() > PROGRESS_LIMIT)
+        {
             return Err("save state exceeds size limit".into());
         }
         let mut out = MAGIC.to_vec();
-        out.extend(1u32.to_le_bytes());
-        for len in [meta.len(), picture.len(), self.data.len()] {
+        out.extend(if progress.is_some() { 2u32 } else { 1 }.to_le_bytes());
+        let mut lengths = vec![meta.len(), picture.len(), self.data.len()];
+        lengths.extend(progress.map(<[u8]>::len));
+        for len in lengths {
             out.extend((len as u32).to_le_bytes());
         }
         out.extend(meta);
         out.extend(picture);
         out.extend(&self.data);
+        out.extend(progress.unwrap_or_default());
         Ok(out)
     }
     pub fn read(path: &Path) -> Result<Self, String> {
         let f = File::open(path).map_err(|e| e.to_string())?;
         let mut bytes = Vec::new();
-        f.take((LIMIT + 16 * 1024 * 1024 + 65536 + 25) as u64)
+        f.take((LIMIT + 16 * 1024 * 1024 + 65536 + PROGRESS_LIMIT + 29) as u64)
             .read_to_end(&mut bytes)
             .map_err(|e| e.to_string())?;
         Self::decode(&bytes)
     }
     pub fn decode(bytes: &[u8]) -> Result<Self, String> {
-        if bytes.len() < 24
-            || &bytes[..8] != MAGIC
-            || u32::from_le_bytes(bytes[8..12].try_into().unwrap()) != 1
-        {
-            return Err("not a nibcase version 1 state".into());
+        let version = (bytes.len() >= 12 && &bytes[..8] == MAGIC)
+            .then(|| u32::from_le_bytes(bytes[8..12].try_into().unwrap()));
+        let sections = match version {
+            Some(1) => 3,
+            Some(2) => 4,
+            _ => return Err("not a nibcase version 1 or 2 state".into()),
+        };
+        let head = 12 + sections * 4;
+        if bytes.len() < head {
+            return Err("truncated or oversized state".into());
         }
-        let mut lengths = [0usize; 3];
-        for (i, len) in lengths.iter_mut().enumerate() {
+        let mut lengths = [0usize; 4];
+        for (i, len) in lengths.iter_mut().take(sections).enumerate() {
             *len = u32::from_le_bytes(bytes[12 + i * 4..16 + i * 4].try_into().unwrap()) as usize;
         }
-        let [meta_len, picture_len, data_len] = lengths;
+        let [meta_len, picture_len, data_len, progress_len] = lengths;
         if meta_len > 65536
             || picture_len > 16 * 1024 * 1024
             || data_len > LIMIT
             || data_len == 0
-            || 24 + meta_len + picture_len + data_len != bytes.len()
+            || progress_len > PROGRESS_LIMIT
+            || head + meta_len + picture_len + data_len + progress_len != bytes.len()
         {
             return Err("truncated or oversized state".into());
         }
         let metadata: Metadata = toml::from_str(
-            std::str::from_utf8(&bytes[24..24 + meta_len]).map_err(|e| e.to_string())?,
+            std::str::from_utf8(&bytes[head..head + meta_len]).map_err(|e| e.to_string())?,
         )
         .map_err(|e| e.to_string())?;
-        let data = bytes[24 + meta_len + picture_len..].to_vec();
+        let data_at = head + meta_len + picture_len;
+        let data = bytes[data_at..data_at + data_len].to_vec();
+        let progress = (sections == 4).then(|| bytes[data_at + data_len..].to_vec());
         if hash(&data) != metadata.state_hash {
             return Err("state checksum does not match".into());
         }
         let picture = if picture_len == 0 {
             Frame::default()
         } else {
-            let decoder = png::Decoder::new(&bytes[24 + meta_len..24 + meta_len + picture_len]);
+            let decoder = png::Decoder::new(&bytes[head + meta_len..head + meta_len + picture_len]);
             let mut reader = decoder.read_info().map_err(|e| e.to_string())?;
             if reader.info().width > 256
                 || reader.info().height > 240
@@ -176,6 +208,7 @@ impl State {
             metadata,
             picture,
             data,
+            progress,
         })
     }
     pub fn restore(&self, core: &mut Core, game_hash: u64) -> Result<(), String> {
@@ -485,17 +518,26 @@ impl Saves {
         }
         Ok(())
     }
-    pub fn save(&self, core: &mut Core, slot: usize) -> Result<State, String> {
-        let state = State::capture(core, self.game_hash, self.play_seconds)?;
+    /// Saves a state in `slot` (0 the resume point), with RetroAchievements' `progress` when
+    /// a session has a set.
+    pub fn save(
+        &self,
+        core: &mut Core,
+        slot: usize,
+        progress: Option<Vec<u8>>,
+    ) -> Result<State, String> {
+        let state = State::capture(core, self.game_hash, self.play_seconds, progress)?;
         self.writer.write(self.path(slot), state.encode()?)?;
         self.writer.flush()?;
         Ok(state)
     }
-    pub fn load(&mut self, core: &mut Core, slot: usize) -> Result<(), String> {
+    /// Loads the state in `slot`: RetroAchievements' progress it carries, `None` when it has
+    /// none (the set's progress then starts over).
+    pub fn load(&mut self, core: &mut Core, slot: usize) -> Result<Option<Vec<u8>>, String> {
         let state = State::read(&self.path(slot))?;
         state.restore(core, self.game_hash)?;
         self.play_seconds = state.metadata.play_seconds;
-        Ok(())
+        Ok(state.progress)
     }
     pub fn flush(&self) -> Result<(), String> {
         self.writer.flush()
@@ -522,6 +564,7 @@ mod tests {
                 rgba: vec![255, 0, 0, 255, 0, 255, 0, 255],
             },
             data,
+            progress: None,
         }
     }
     #[test]
@@ -538,6 +581,34 @@ mod tests {
         let mut bad = bytes;
         *bad.last_mut().unwrap() ^= 1;
         assert!(State::decode(&bad).is_err());
+    }
+    #[test]
+    fn achievement_progress_goes_in_a_fourth_section() {
+        let mut state = example();
+        let without = state.encode().unwrap();
+        assert_eq!(
+            &without[8..12],
+            &1u32.to_le_bytes(),
+            "no progress: version 1"
+        );
+        assert_eq!(State::decode(&without).unwrap().progress, None);
+        state.progress = Some(b"rcheevos progress".to_vec());
+        let with = state.encode().unwrap();
+        assert_eq!(&with[8..12], &2u32.to_le_bytes());
+        let decoded = State::decode(&with).unwrap();
+        assert_eq!(decoded.progress.as_deref(), Some(&b"rcheevos progress"[..]));
+        assert_eq!(decoded.data, state.data);
+        assert_eq!(decoded.picture, state.picture);
+        // Empty progress is still progress (rcheevos' to read), not none.
+        state.progress = Some(Vec::new());
+        let empty = State::decode(&state.encode().unwrap()).unwrap();
+        assert_eq!(empty.progress, Some(Vec::new()));
+        for n in [12, 27, 28, with.len() - 1] {
+            assert!(State::decode(&with[..n]).is_err());
+        }
+        let mut other = with;
+        other[8] = 3;
+        assert!(State::decode(&other).is_err());
     }
     fn temp(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("nibcase-{name}-{}", std::process::id()));
@@ -583,6 +654,7 @@ mod tests {
     fn a_battery_save_waits_for_a_core_that_shows_its_memory_late() {
         use nibcase_libretro::testing::{fixture, game};
         use nibcase_libretro::Config;
+        let _one = crate::tests::CORE.lock().unwrap_or_else(|e| e.into_inner());
         let dir = temp("late");
         let mut core = Core::open(Config {
             core: fixture().into(),

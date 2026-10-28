@@ -8,37 +8,62 @@
 # Arch machine:
 #
 #   cd packaging/nibos && PKGDEST="$PWD/out" BUILDDIR="$HOME/makepkg-build" makepkg -f --nodeps
+#
+# NIBKIT=<a nibkit checkout> builds against it instead of the tag (nibkit and nib-cheevos patched
+# in, as CONTRIBUTING.md describes; Cargo.lock's nibkit is then replaced in the copy here).
 pkgbase=nibcase
 pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed)
-pkgver=0.1.0
-pkgrel=18
+pkgver=0.2.0
+pkgrel=1
 arch=(aarch64)
 url='https://github.com/abradburne/nibcase'
 license=(MIT OFL-1.1)
+# gcc: rcheevos, the RetroAchievements library nib-cheevos builds in.
 makedepends=(cargo gcc sdl2-compat)
 _root=$(cd "$startdir/../.." && pwd)
+_nibkit=${NIBKIT:+$(cd "$NIBKIT" && pwd)}
+# Cargo.lock as it is (--frozen), or, with NIBKIT, as prepare() resolved it in the copy.
+_frozen=--frozen
+[ -z "$_nibkit" ] || _frozen=--offline
 prepare() {
-    rm -rf "$srcdir/nibcase"
+    rm -rf "$srcdir/nibcase" "$srcdir/nibkit"
     mkdir -p "$srcdir/nibcase/packaging/nibos"
     cp -r "$_root"/{Cargo.toml,Cargo.lock,crates,third_party,README.md,CHANGELOG.md,LICENSE,THIRD-PARTY.md,docs} "$srcdir/nibcase/"
     cp "$_root/packaging/nibos/90-nibcase-cores.hook" "$srcdir/nibcase/packaging/nibos/"
+    local locked=--locked
+    if [ -n "$_nibkit" ]; then
+        mkdir -p "$srcdir/nibkit" "$srcdir/nibcase/.cargo"
+        cp -r "$_nibkit"/{Cargo.toml,build.rs,src,assets,examples,README.md,CHANGELOG.md,nib-cheevos,nibkit-menu-c} "$srcdir/nibkit/"
+        cp "$_nibkit"/LICENSE* "$srcdir/nibkit/"
+        rm -rf "$srcdir/nibkit/nib-cheevos/target" "$srcdir/nibkit/nibkit-menu-c/target"
+        printf '[patch."https://github.com/abradburne/nibkit"]\nnibkit = { path = "%s" }\nnib-cheevos = { path = "%s/nib-cheevos" }\n' \
+            "$srcdir/nibkit" "$srcdir/nibkit" > "$srcdir/nibcase/.cargo/config.toml"
+        locked=
+    fi
     cd "$srcdir/nibcase"
-    cargo fetch --locked --target aarch64-unknown-linux-gnu
+    cargo fetch $locked --target aarch64-unknown-linux-gnu
+    # Where rcheevos' licence is (nib-cheevos' source: Cargo's checkout of nibkit, or NIBKIT's
+    # copy), for package(), which runs offline.
+    cargo metadata $locked --format-version 1 --manifest-path crates/nibcase/Cargo.toml |
+        grep -o '"manifest_path":"[^"]*/nib-cheevos/Cargo.toml"' | head -1 |
+        sed 's/^"manifest_path":"//; s/Cargo.toml"$/rcheevos\/LICENSE/' > "$srcdir/rcheevos-licence"
+    [ -s "$srcdir/rcheevos-licence" ] || { echo "nib-cheevos' source not found" >&2; return 1; }
 }
 build() {
     cd "$srcdir/nibcase"
     # package() installs from target/: a CARGO_TARGET_DIR from the environment would move it.
     export CARGO_TARGET_DIR="$srcdir/nibcase/target"
-    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo build --release --workspace --frozen
+    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo build --release --workspace $_frozen
 }
 check() {
     cd "$srcdir/nibcase"
     export CARGO_TARGET_DIR="$srcdir/nibcase/target"
-    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo test --release --workspace --frozen
+    RUSTFLAGS="-C target-cpu=cortex-a55 --remap-path-prefix=$srcdir=." cargo test --release --workspace $_frozen
 }
 package_nibcase() {
     pkgdesc='Dual-screen libretro player for nibOS, with automatic DSlot integration'
-    depends=(sdl2-compat)
+    # curl carries the requests to RetroAchievements.
+    depends=(sdl2-compat curl)
     optdepends=('nibcase-snes9x: SNES core (separate noncommercial licence)' 'nibcase-nestopia: NES and Disk System core' 'nibcase-blastem: Mega Drive core' 'nibcase-gearsystem: Game Gear, Master System and SG-1000 core' 'nibcase-handy: Lynx core (requires BIOS)' 'nibcase-gw: Game & Watch core' 'nibcase-beetle-pce-fast: PC Engine and PC Engine CD core' 'nibcase-beetle-ngp: Neo Geo Pocket core' 'nibcase-beetle-wswan: WonderSwan core' 'nibcase-pcsx-rearmed: PlayStation core')
     cd "$srcdir/nibcase"
     install -Dm755 -t "$pkgdir/usr/bin" target/release/nibcase target/release/nibcase-test
@@ -46,6 +71,8 @@ package_nibcase() {
     install -Dm644 -t "$pkgdir/usr/share/doc/nibcase" README.md CHANGELOG.md docs/*.md
     install -Dm644 -t "$pkgdir/usr/share/licenses/nibcase" LICENSE THIRD-PARTY.md third_party/OFL.txt
     install -Dm644 third_party/libretro/libretro.h "$pkgdir/usr/share/licenses/nibcase/libretro.h"
+    # rcheevos (MIT), built in for RetroAchievements through nib-cheevos (vendored there).
+    install -Dm644 "$(cat "$srcdir/rcheevos-licence")" "$pkgdir/usr/share/licenses/nibcase/LICENSE.rcheevos"
 }
 package_nibcase-snes9x() {
     pkgdesc='Snes9x core for nibcase and DSlot (noncommercial core licence)'

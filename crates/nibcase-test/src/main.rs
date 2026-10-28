@@ -299,6 +299,17 @@ fn description(
         );
     }
     doc.insert("systems".into(), V::Table(systems));
+    // Where it earns RetroAchievements: the systems it plays that were checked (Casual only).
+    let earning: Vec<String> = systems_played
+        .iter()
+        .filter(|s| s.achievements())
+        .map(|s| s.id().to_owned())
+        .collect();
+    if !earning.is_empty() {
+        let mut achievements = toml::Table::new();
+        achievements.insert("systems".into(), array(earning));
+        doc.insert("achievements".into(), V::Table(achievements));
+    }
     let options = core
         .options()
         .filter(|d| {

@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.2.0
+
+- **RetroAchievements** (Casual), through nibkit's `nib-cheevos` (nibkit 0.2.1), for SNES, NES,
+  Mega Drive, Game Gear, Atari Lynx and PlayStation, each played on the RG DS+ to its set's
+  placard (docs/retroachievements.md). DSlot passes its sign-in to the cores whose descriptions
+  declare the system: `nibcase-test --sync` now writes `[achievements] systems = [...]` for
+  those. The game is identified by rhash as DSlot identifies it (zips, discs from their cue
+  sheet, `.m3u`, and `.chd` through nib-cheevos' new CHD reader); the set is checked after every
+  frame, fast-forward's too, and kept alive while paused; reset and loading a state start the
+  progress over or restore it, and states keep it. rcheevos' rules for libretro cores hold: a
+  core it rules out for a console earns nothing, and an option it rules out (a PAL region, a
+  layer turned off, an underclocked CPU) pauses the set with a notice. The placard, unlocks with
+  their badges, the game completed and problems are nibkit's toasts over the game; progress and
+  challenges its indicators. User-Agent `nibcase/0.2.0 (nibOS; linux aarch64) <core>/<version>
+  rcheevos/12.4`. `NIBCASE_DEBUG=cheevos` logs the requests and how the console was mapped;
+  `NIBCASE_PEEK=<address>` logs 4 bytes of the console's memory once a second.
+- **Memory maps:** the host answers `RETRO_ENVIRONMENT_SET_MEMORY_MAPS` (kept, the core's pointers
+  its own: `Core::memory_map`, `Core::memory_maps`) and gives a core's memory in place
+  (`Core::memory_in_place`); `SET_SUPPORT_ACHIEVEMENTS` is accepted.
+- **States:** version 2 adds a fourth section, RetroAchievements' progress; a state without it is
+  written as version 1, as before, and both are read.
+- nibkit 0.2.0 (from 0.1.0) and nib-cheevos; the package depends on `curl` (the requests) and
+  installs rcheevos' licence.
+
 ## 0.1.0
 
 The first release: a dual-screen libretro player for the Anbernic RG DS+ on nibOS, with the same

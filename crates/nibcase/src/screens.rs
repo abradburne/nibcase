@@ -1,7 +1,9 @@
 //! SDL owns both panels throughout play. Textures and menu rasters are reused across frames.
 use crate::unit::Part;
 use nibcase_libretro::Frame;
+use nibkit::menu::indicators::Indicators;
 use nibkit::menu::raster::{Canvas as Raster, Fonts};
+use nibkit::menu::toast;
 use nibkit::menu::{Draw, Status};
 use nibkit::screens::{self, Rect as Region};
 use sdl2::pixels::{Color, PixelFormatEnum};
@@ -9,6 +11,7 @@ use sdl2::rect::Rect;
 use sdl2::render::{BlendMode, ScaleMode, Texture, TextureCreator, WindowCanvas};
 use sdl2::video::WindowContext;
 use std::path::{Path, PathBuf};
+use std::time::Instant;
 
 #[derive(Clone, Copy)]
 struct View {
@@ -20,6 +23,15 @@ struct Image {
     texture: Texture,
     width: u32,
     height: u32,
+}
+/// A picture laid over the game on the top panel in play (RetroAchievements' toast, its
+/// indicators): its texture, where it goes on the canvas, whether it is up, and the serial of
+/// what it shows (nibkit's), to upload it again only when that changes.
+#[derive(Default)]
+struct Overlay {
+    image: Option<Image>,
+    at: Option<Rect>,
+    serial: u64,
 }
 pub struct Screens {
     pub sdl: sdl2::Sdl,
@@ -42,6 +54,9 @@ pub struct Screens {
     card: Option<Image>,
     /// Scale the game smoothly: a photograph of a unit, not a raster of pixels.
     pub smooth: bool,
+    /// Over the game: the toast on show, bottom right, and the indicators, bottom left.
+    toast: Overlay,
+    indicators: Overlay,
 }
 fn upload(
     creator: &TextureCreator<WindowContext>,
@@ -93,6 +108,27 @@ fn upload_part(
             frame.width as usize * 4,
         )
         .map_err(|e| e.to_string())
+}
+/// Uploads a picture laid over the game (straight alpha, blended) to `overlay`, up at `at`.
+fn lay(
+    creator: &TextureCreator<WindowContext>,
+    overlay: &mut Overlay,
+    rgba: &[u8],
+    at: Rect,
+    serial: u64,
+) -> Result<(), String> {
+    let picture = Frame {
+        width: at.width(),
+        height: at.height(),
+        rgba: rgba.to_vec(),
+    };
+    upload(creator, &mut overlay.image, &picture)?;
+    if let Some(image) = &mut overlay.image {
+        image.texture.set_blend_mode(BlendMode::Blend);
+    }
+    overlay.at = Some(at);
+    overlay.serial = serial;
+    Ok(())
 }
 fn native(rect: Region) -> Rect {
     Rect::new(rect.x, rect.y, rect.w, rect.h)
@@ -241,6 +277,8 @@ impl Screens {
             body: None,
             card: None,
             smooth: false,
+            toast: Overlay::default(),
+            indicators: Overlay::default(),
         })
     }
     pub fn set_sync(&mut self, on: bool) {
@@ -337,6 +375,11 @@ impl Screens {
         c.set_draw_color(Color::BLACK);
         c.fill_rect(native(v.rect))?;
         c.copy(&self.game.as_ref().unwrap().texture, None, dst)?;
+        for o in [&self.indicators, &self.toast] {
+            if let (Some(image), Some(at)) = (&o.image, o.at) {
+                c.copy(&image.texture, None, at)?;
+            }
+        }
         // The bottom panel: the card if there is one, else black; on a panel of its own it is
         // drawn once and left, never redrawn in play.
         let b = self.bottom;
@@ -393,6 +436,13 @@ impl Screens {
             c.set_draw_color(Color::BLACK);
             c.fill_rect(native(v.rect))?;
             c.copy(&image.as_ref().unwrap().texture, None, on(v, f(part.dst)))?;
+            if v.canvas == self.top.canvas && v.rect == self.top.rect {
+                for o in [&self.indicators, &self.toast] {
+                    if let (Some(image), Some(at)) = (&o.image, o.at) {
+                        c.copy(&image.texture, None, at)?;
+                    }
+                }
+            }
             c.set_clip_rect(None);
         }
         // The bottom panel is redrawn every frame now: a menu shown after this redraws it.
@@ -404,6 +454,44 @@ impl Screens {
             self.canvases[self.top.canvas].present();
             Ok(())
         }
+    }
+    /// RetroAchievements' toast and indicators over the game in play, as `toasts` and
+    /// `indicators` have them at `now` (ticked here, once a frame); drawn at the top panel's
+    /// scale and uploaded only when what they show changes.
+    pub fn overlays(
+        &mut self,
+        toasts: &mut toast::Queue,
+        indicators: &mut Indicators,
+        now: Instant,
+    ) -> Result<(), String> {
+        let v = self.top;
+        let frame = (v.rect.w as usize, v.rect.h as usize);
+        let creator = &self.creators[v.canvas];
+        let place = |(x, y): (usize, usize), w: usize, h: usize| {
+            Rect::new(v.rect.x + x as i32, v.rect.y + y as i32, w as u32, h as u32)
+        };
+        match toasts.tick(now).map(toast::Shown::serial) {
+            None => self.toast.at = None,
+            Some(serial) if serial != self.toast.serial || self.toast.at.is_none() => {
+                let scale = nibkit::menu::scale_for(frame.0, frame.1);
+                if let Some(t) = toasts.draw(&self.fonts, scale) {
+                    let at = place(t.place(frame), t.width(), t.height());
+                    lay(creator, &mut self.toast, t.rgba(), at, serial)?;
+                }
+            }
+            Some(_) => {}
+        }
+        match indicators.tick(now) {
+            0 => self.indicators.at = None,
+            serial if serial != self.indicators.serial || self.indicators.at.is_none() => {
+                if let Some(stack) = indicators.draw(&self.fonts, frame) {
+                    let at = place(stack.place(), stack.width(), stack.height());
+                    lay(creator, &mut self.indicators, stack.rgba(), at, serial)?;
+                }
+            }
+            _ => {}
+        }
+        Ok(())
     }
     /// What the bottom panel shows in play from now on, drawn from `draws`; `None` for black.
     pub fn set_card(&mut self, draws: Option<&[Draw]>) -> Result<(), String> {
@@ -533,6 +621,8 @@ impl Drop for Screens {
             &mut self.paused,
             &mut self.body,
             &mut self.card,
+            &mut self.toast.image,
+            &mut self.indicators.image,
         ] {
             if let Some(image) = image.take() {
                 // SAFETY: textures are uniquely owned and all renderers outlive this Drop method.

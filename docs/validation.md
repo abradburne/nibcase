@@ -264,3 +264,31 @@ core's own, HLE).
   cost, the panels, buttons, sound, a two-disc `.m3u`, the DualShock and a real BIOS are still to
   be checked in play.
 
+
+## RetroAchievements (2026-10-28)
+
+nibcase 0.2.0 (nibkit 0.2.1's nib-cheevos), the DS+ on nibOS 0.1.0-alpha6, signed in as DSlot
+signs in (its token file and `RA_*` environment), each game started in DSlot's command form under
+`timeout -s KILL` with DSlot stopped. The placard each gave (`cheevos: <title> -- <standing>`):
+
+| System | Core | Game | Placard |
+|---|---|---|---|
+| SNES | Snes9x 1.63 | Donkey Kong Country (U) (V1.2), `.smc` | Casual: 0 of 71 unlocked (game 337, 149/149 addresses valid) |
+| NES | Nestopia 2.0.0 | Contra (USA); Super Mario Bros. 3 (USA) (Rev 1) | 0 of 40 (1447); 0 of 89 (1995) |
+| Mega Drive | BlastEm 1.0.1-pre | Aladdin (USA), zipped; Sonic the Hedgehog | 0 of 21 (2); 0 of 35 (1) |
+| Game Gear | Gearsystem 3.9.22 | Crystal Warriors (USA, Europe), zipped | 0 of 73 (11711) |
+| Lynx | Handy 0.97 | California Games, `lynxboot.img` by `--bios` | 0 of 14 (11482) |
+| PlayStation | PCSX ReARMed r26 | Gran Turismo (USA) (Rev 1), `.chd`, HLE BIOS | 0 of 68 (11320, 112/112 addresses valid) |
+
+The placard is drawn as nibkit's toast at the top screen's bottom right. With
+`--option snes9x_region=pal` the set paused: "Achievements paused -- Console Region (Reload
+Core): PAL is not allowed". BlastEm's RAM byte order matches the service's: Sonic's game mode,
+0x04 at the 68000's $FFF600 on the title screen, read at the service's $F601 (`NIBCASE_PEEK`), as
+the game's set reads it (`0xHf601`).
+
+Not checked: an unlock, its badge and the progress and challenge indicators on the device (the
+session's tests in nib-cheevos play them against a scripted service); a save state's progress on
+the device (its container is tested). Master System (Stalactites), Neo Geo Pocket (Asteroids
+Neo), WonderSwan (Rotate Dungeon, One Last Lap) and PC Engine (HuC's shmup) ran up to the
+service, which doesn't know these homebrew dumps; HuC's CD example isn't a PC Engine CD to rhash.
+SG-1000 and the Disk System: no game. Those systems stay undeclared.

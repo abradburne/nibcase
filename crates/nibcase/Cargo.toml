@@ -18,7 +18,10 @@ dslot = ["nibkit/dslot"]
 nibcase-libretro = { path = "../nibcase-libretro" }
 # nibOS's SDK library (github.com/abradburne/nibkit, MIT): the screens, buttons, touch, menu,
 # settings and DSlot descriptions. To build against a local checkout, see CONTRIBUTING.md.
-nibkit = { git = "https://github.com/abradburne/nibkit", tag = "v0.1.0", default-features = false, features = ["menu-raster"] }
+nibkit = { git = "https://github.com/abradburne/nibkit", tag = "v0.2.1", default-features = false, features = ["menu-raster"] }
+# RetroAchievements, nibkit's: rcheevos (vendored there), its libretro memory maps and rules, and
+# curl as the transport; the session starts only when DSlot passes a sign-in.
+nib-cheevos = { git = "https://github.com/abradburne/nibkit", tag = "v0.2.1", default-features = false, features = ["client", "hash", "zip", "chd", "libretro"] }
 sdl2 = { version = "0.38", features = ["unsafe_textures"] }
 libc = "0.2"
 png = "0.17"

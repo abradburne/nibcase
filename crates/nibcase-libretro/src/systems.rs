@@ -185,6 +185,22 @@ impl System {
     pub fn discs(self) -> bool {
         matches!(self, Self::PcEngineCd | Self::PlayStation)
     }
+    /// Whether its games earn RetroAchievements in nibcase: DSlot passes the sign-in to a core
+    /// only for the systems its description declares (`[achievements]`), and these are the ones
+    /// played on the RG DS+ to the set's placard (docs/validation.md). The others are left out
+    /// until they are: the memory and hashing are rcheevos' for every system, but a system no
+    /// game was checked on isn't declared.
+    pub fn achievements(self) -> bool {
+        matches!(
+            self,
+            Self::Snes
+                | Self::Nes
+                | Self::MegaDrive
+                | Self::GameGear
+                | Self::Lynx
+                | Self::PlayStation
+        )
+    }
     /// The BIOS file it needs in `BIOS/`, if any.
     pub fn bios(self) -> Option<&'static str> {
         match self {
@@ -387,6 +403,17 @@ mod tests {
         assert!(System::of_core(Path::new("other_libretro.so")).is_empty());
         assert!(!System::PcEngineCd.takes(Path::new("Coast.zip")));
         assert!(System::PcEngine.takes(Path::new("Coast.zip")));
+    }
+    /// The systems whose games were played on the DS+ to their set's placard; the rest wait
+    /// for a game with a set (docs/retroachievements.md).
+    #[test]
+    fn achievements_only_where_a_game_was_checked() {
+        let earning: Vec<&str> = System::ALL
+            .into_iter()
+            .filter(|s| s.achievements())
+            .map(System::id)
+            .collect();
+        assert_eq!(earning, ["SFC", "FC", "MD", "GG", "LYNX", "PS"]);
     }
     #[test]
     fn inference_and_cartridge_scope() {

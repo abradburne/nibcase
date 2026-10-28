@@ -58,6 +58,8 @@ fn generate_validate_update_and_remove_only_owned_descriptions() {
     let text = std::fs::read_to_string(&target).unwrap();
     let emulator = nibkit::dslot::check("nibcase-snes9x", &text).unwrap();
     assert!(emulator.plays("SFC"));
+    assert!(emulator.earns("SFC"), "SNES earns RetroAchievements");
+    assert!(!emulator.achievements.hardcore, "Casual only");
     assert_eq!(emulator.priority, 100);
     let option = emulator
         .options_for("SFC")
@@ -115,6 +117,11 @@ fn generate_validate_update_and_remove_only_owned_descriptions() {
             assert!(emulator.plays(other), "{name} plays {other}");
             let command = emulator.command(other).unwrap();
             assert!(command.windows(2).any(|w| w == ["--system", *other]));
+        }
+        // RetroAchievements, for the systems checked on the device only.
+        for s in std::iter::once(&system).chain(also) {
+            let checked = nibcase_libretro::systems::System::from_id(s).unwrap();
+            assert_eq!(emulator.earns(s), checked.achievements(), "{name} {s}");
         }
         assert!(emulator
             .options_for(system)

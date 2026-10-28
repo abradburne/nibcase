@@ -43,6 +43,10 @@ listed is free (GPL-2.0, GPL-3.0 or Zlib) and may be distributed with the usual 
 
 **`.chd` and `.cue`** belong to PC Engine CD and PlayStation both: the folder decides which.
 
+**RetroAchievements** (Casual) are earned for SNES, NES, Mega Drive, Game Gear, Lynx and
+PlayStation, the systems checked on the device; [RetroAchievements](retroachievements.md) says how,
+and what the others wait for.
+
 ## BIOS
 
 BIOS files are the player's own; none is distributed. Put them in `BIOS/` at the root of either

@@ -88,6 +88,14 @@ it after.
 - **On the device:** the packages land in `packaging/nibos/out/`; pinned cores are built
   separately (step 4). Install them with `pacman -U`.
 
+### RetroAchievements
+
+rcheevos maps every console's memory over a core's (its memory map or its memory ids), so a new
+core needs no code for it; it needs a check. Play one game with a set on the device, with DSlot's
+RA environment and `NIBCASE_DEBUG=cheevos`, and see the placard (and for a 16-bit console, that the
+core's byte order is the service's: `NIBCASE_PEEK`). Then add the system to `System::achievements`
+(the description declares it) and to [RetroAchievements](retroachievements.md).
+
 ## 8. Write it down
 
 [systems](systems.md) (the table, the BIOS, the notes), [validation](validation.md) (what was

@@ -62,6 +62,17 @@ implementation follows the vendored MIT libretro header's counter-clockwise quar
   owned `.mgw` files, which are not in this repository.
 - The hinge positions in `crates/nibcase/src/unit.rs` were measured from those frames.
 
+## RetroAchievements
+
+- nibkit's `nib-cheevos` (MIT), with rcheevos 12.4 (MIT, vendored there), RetroAchievements' own
+  library: the session, rhash and `rc_libretro.c` (each console's memory over a libretro core's,
+  and its rules for cores' options and consoles) were read, as was `libretro.h`'s memory map.
+  No other emulator's or frontend's achievements code was read.
+- The `chd` crate (chd-rs, BSD-3-Clause) decompresses CHD images for nib-cheevos' CD reader;
+  its API and its CD frame layout were read.
+- Sonic the Hedgehog's RAM map (Sonic Retro's wiki: the game mode at $FFF600) and the game's set
+  as the service serves it (its memory references), for BlastEm's byte order.
+
 ## Master System, PC Engine, Neo Geo Pocket, WonderSwan, Disk System
 
 - Cores, run as black boxes; only their build files and licences read: Gearsystem (already

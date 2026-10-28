@@ -97,6 +97,13 @@ struct Context {
     controllers: Vec<(String, u32)>,
     /// With `NIBCASE_DEBUG=input`, each (port, device, index, id) the core reads, logged once.
     asked: Option<BTreeSet<(u32, u32, u32, u32)>>,
+    /// The console's address space as the core maps it (`SET_MEMORY_MAPS`), copied: for
+    /// RetroAchievements, which reads the console's memory through it. Empty when the core gave
+    /// none.
+    memory_map: Vec<retro_memory_descriptor>,
+    /// Counts the maps the core has given, so a reader built over the last one knows to build
+    /// again.
+    maps: u32,
 }
 
 impl Context {
@@ -319,6 +326,8 @@ impl Core {
             asked: std::env::var("NIBCASE_DEBUG")
                 .is_ok_and(|d| d.split(',').any(|w| w == "input"))
                 .then(BTreeSet::new),
+            memory_map: Vec::new(),
+            maps: 0,
         });
         let mut core = Self {
             api,
@@ -776,6 +785,36 @@ impl Core {
                 }
             }
         })
+    }
+
+    /// The core's memory `id` (`RETRO_MEMORY_*`) where it is, not copied: its first byte and
+    /// size, or `None` when the core has none. The core owns it; it stays where it is while
+    /// the game is loaded, unless the core says otherwise (a new memory map, another size).
+    pub fn memory_in_place(&mut self, id: u32) -> Option<(*mut u8, usize)> {
+        if !self.loaded {
+            return None;
+        }
+        self.call(|a| {
+            // SAFETY: plain queries of the live, loaded core on its thread; nothing is read.
+            unsafe {
+                let n = (a.get_memory_size)(id);
+                let ptr = (a.get_memory_data)(id);
+                (!ptr.is_null() && n > 0).then_some((ptr.cast::<u8>(), n))
+            }
+        })
+    }
+
+    /// The console's memory as the core maps it (`RETRO_ENVIRONMENT_SET_MEMORY_MAPS`), its
+    /// descriptors' pointers the core's own; empty when it gave no map. With
+    /// [`Core::memory_maps`], how many maps it has given (a new one replaces the last).
+    pub fn memory_map(&self) -> &[retro_memory_descriptor] {
+        &self.ctx.memory_map
+    }
+
+    /// How many memory maps the core has given: a reader over the map builds again when this
+    /// changes.
+    pub fn memory_maps(&self) -> u32 {
+        self.ctx.maps
     }
 
     pub fn restore_memory(&mut self, id: u32, data: &[u8]) -> Result<(), String> {

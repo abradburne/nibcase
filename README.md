@@ -22,7 +22,9 @@ licences.
 | Game & Watch | `Roms/GW` | `.mgw` | gw-libretro | |
 | PlayStation | `Roms/PS` | `.chd` `.cue` `.pbp` `.m3u` | PCSX ReARMed | `scph5501.bin` etc., optional |
 
-Cartridges may also be a `.zip` holding one game; discs never are. Games may be on either card.
+Cartridges may also be a `.zip` holding one game; discs never are.
+[RetroAchievements](docs/retroachievements.md) (Casual) work for SNES, NES, Mega Drive, Game Gear,
+Lynx and PlayStation when DSlot is signed in. Games may be on either card.
 **[docs/systems.md](docs/systems.md)** has every system's details: cores and their licences and
 packages, the BIOS files with their checksums, Game & Watch's dual-screen units and Screen only,
 WonderSwan's upright games, the headed PC Engine System Card, and PlayStation's discs, memory
@@ -98,7 +100,8 @@ cd packaging/nibos && PKGDEST="$PWD/out" makepkg -f --nodeps
 `nibcase-test` is the workbench: `--describe CORE` (the DSlot description), `--sync DIR` (what
 the package hook runs), `--bench CORE GAME [--state-check] [--press BUTTON@N] [--tap X,Y@N]
 [--frame PNG]` (cost per frame, state continuation, scripted input, the last frame).
-`NIBCASE_DEBUG=input` logs which inputs a core reads. `--headless` runs the core without SDL; for
+`NIBCASE_DEBUG=input` logs which inputs a core reads; `NIBCASE_DEBUG=cheevos` every
+RetroAchievements request and how the console's memory was mapped. `--headless` runs the core without SDL; for
 pictures without the panels use `SDL_VIDEODRIVER=dummy` and `--screenshot`.
 Desktop: `cargo run -p nibcase --no-default-features --features desktop,dslot -- --core CORE GAME`.
 

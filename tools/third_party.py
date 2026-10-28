@@ -75,8 +75,11 @@ def main():
       "`tools/third_party.py`; do not edit.\n\n")
     w("Also in the programs: Roboto Condensed (drawn by nibkit's menu), under the SIL Open Font\n"
       "License 1.1 (third_party/OFL.txt), and libretro.h, the libretro API's header, under the\n"
-      "MIT licence (third_party/libretro/libretro.h, its licence at its top). SDL2 is not built\n"
-      "in: nibcase links to the system's libSDL2 (zlib licence).\n\n")
+      "MIT licence (third_party/libretro/libretro.h, its licence at its top). rcheevos, the\n"
+      "RetroAchievements library, is built in through nib-cheevos (which vendors it), under the\n"
+      "MIT licence (its `rcheevos/LICENSE`, installed as LICENSE.rcheevos). SDL2 is not built\n"
+      "in: nibcase links to the system's libSDL2 (zlib licence); RetroAchievements' requests go\n"
+      "through the system's `curl` program (curl licence), run, not linked.\n\n")
     w("The libretro cores nibcase plays are separate programs, installed as their own packages\n"
       "under their own licences, and never built into nibcase: docs/systems.md lists them.\n\n")
     w("| Crate | Version | Licence | Built for |\n|---|---|---|---|\n")

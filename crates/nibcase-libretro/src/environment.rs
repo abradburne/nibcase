@@ -410,7 +410,26 @@ pub(super) unsafe extern "C" fn environment(command: u32, data: *mut c_void) -> 
                     }
                     true
                 }
-                // Metadata accepted and not used.
+                // The console's address space, for RetroAchievements: copied, the core's array
+                // being its own; the memory it points to stays the core's.
+                RETRO_ENVIRONMENT_SET_MEMORY_MAPS => {
+                    let map = &*data.cast::<retro_memory_map>();
+                    let n = map.num_descriptors.min(1024) as usize;
+                    c.memory_map = if map.descriptors.is_null() {
+                        Vec::new()
+                    } else {
+                        std::slice::from_raw_parts(map.descriptors, n).to_vec()
+                    };
+                    // The address space's name is the core's string, not kept: nothing reads it.
+                    for d in &mut c.memory_map {
+                        d.addrspace = std::ptr::null();
+                    }
+                    c.maps += 1;
+                    true
+                }
+                // Metadata accepted and not used: a core saying it supports achievements
+                // changes nothing (the memory map or ids are what they are read through).
+                RETRO_ENVIRONMENT_SET_SUPPORT_ACHIEVEMENTS => true,
                 RETRO_ENVIRONMENT_SET_PERFORMANCE_LEVEL | RETRO_ENVIRONMENT_SET_SUPPORT_NO_GAME => {
                     true
                 }

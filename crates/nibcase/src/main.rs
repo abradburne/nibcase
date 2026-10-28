@@ -1,4 +1,5 @@
 //! A small dual-screen libretro player. See docs/provenance.md for the API sources.
+mod achievements;
 mod audio;
 mod connections;
 mod input;
@@ -8,6 +9,7 @@ mod screens;
 mod settings;
 mod unit;
 
+use achievements::Session;
 use input::Action;
 use menu::Command;
 use nibcase_libretro::{systems::System, Config, Core};
@@ -226,22 +228,49 @@ fn run() -> Result<(), String> {
     for notice in &saves.notices {
         eprintln!("nibcase: {notice}");
     }
+    // RetroAchievements, when DSlot passed a sign-in (achievements.rs). Declared after the core,
+    // so it goes first: it reads the core's memory in place.
+    let mut cheevos = System::from_id(&args.system)
+        .and_then(|system| achievements::start(&core, &args.core, system, rom, debug("cheevos")));
+    if let Some(c) = &mut cheevos {
+        c.check_options(&core);
+    }
     if !args.fresh && prefs.enabled("resume") && core.has_states() && saves.path(0).exists() {
-        if let Err(e) = saves.load(&mut core, 0) {
-            eprintln!("nibcase: resume skipped: {e}");
+        match saves.load(&mut core, 0) {
+            Ok(progress) => {
+                if let Some(c) = &mut cheevos {
+                    c.jumped(progress.as_deref());
+                }
+            }
+            Err(e) => eprintln!("nibcase: resume skipped: {e}"),
         }
     }
     // Always finish through this path: a rendering/audio error must still preserve battery RAM.
     let result = if let Some(s) = screens.as_mut() {
-        player(s, &mut core, &mut prefs, &mut saves, &args, &stop)
+        player(
+            s,
+            &mut core,
+            &mut prefs,
+            &mut saves,
+            &mut cheevos,
+            &args,
+            &stop,
+        )
     } else {
-        headless(&mut core, &mut saves, args.frames.unwrap_or(120), &stop)
+        headless(
+            &mut core,
+            &mut saves,
+            &mut cheevos,
+            args.frames.unwrap_or(120),
+            &stop,
+        )
     };
     let ram = saves.battery(&mut core, true);
     let state = if !core.has_states() {
         Ok(())
     } else {
-        saves.save(&mut core, 0).map(|_| ())
+        let progress = cheevos.as_mut().and_then(Session::progress);
+        saves.save(&mut core, 0, progress).map(|_| ())
     };
     let flush = saves.flush();
     for error in [&ram, &state, &flush]
@@ -251,6 +280,11 @@ fn run() -> Result<(), String> {
         eprintln!("nibcase: saving: {error}");
     }
     result.and(ram).and(state).and(flush)
+}
+/// Whether `NIBCASE_DEBUG` (words separated by commas) has `word`: `cheevos` logs every
+/// request to RetroAchievements, rcheevos' own messages and how it maps the console's memory.
+fn debug(word: &str) -> bool {
+    std::env::var("NIBCASE_DEBUG").is_ok_and(|d| d.split(',').any(|w| w == word))
 }
 /// BIOS files may live on either card. An explicit directory always wins. A system that needs
 /// one (`System::bios`: Lynx, PC Engine CD, Disk System) uses the card that has it, and doesn't
@@ -337,6 +371,7 @@ fn default_saves(rom: &Path, system: &str, name: &str) -> PathBuf {
 fn headless(
     core: &mut Core,
     saves: &mut saves::Saves,
+    cheevos: &mut Option<Session>,
     frames: u64,
     stop: &AtomicBool,
 ) -> Result<(), String> {
@@ -347,6 +382,10 @@ fn headless(
             break;
         }
         core.run(0, [0; 2], false, 50)?;
+        if let Some(c) = cheevos {
+            c.frame(core);
+            c.show();
+        }
         if saves.pending() {
             saves.restore_pending(core)?;
         }
@@ -441,6 +480,7 @@ fn command(
     command: Command,
     core: &mut Core,
     saves: &mut saves::Saves,
+    cheevos: &mut Option<Session>,
     menu: &mut menu::Menu,
     paused: &mut bool,
     fast: &mut bool,
@@ -454,6 +494,9 @@ fn command(
         Command::Quit => return Ok(true),
         Command::Reset => {
             core.reset();
+            if let Some(c) = cheevos {
+                c.reset();
+            }
             *paused = false;
         }
         Command::Fast => {
@@ -469,7 +512,8 @@ fn command(
             if !core.has_states() {
                 return Err("This core does not support persistent states".into());
             }
-            let state = saves.save(core, slot)?;
+            let progress = cheevos.as_mut().and_then(Session::progress);
+            let state = saves.save(core, slot, progress)?;
             menu.states[slot] = Some(state);
             menu.notice = format!("Saved slot {slot}");
         }
@@ -477,7 +521,10 @@ fn command(
             if !core.has_states() {
                 return Err("This core does not support persistent states".into());
             }
-            saves.load(core, slot)?;
+            let progress = saves.load(core, slot)?;
+            if let Some(c) = cheevos {
+                c.jumped(progress.as_deref());
+            }
             menu.notice = format!("Loaded slot {slot}");
             *paused = false;
         }
@@ -489,6 +536,7 @@ fn player(
     core: &mut Core,
     prefs: &mut Preferences,
     saves: &mut saves::Saves,
+    cheevos: &mut Option<Session>,
     args: &Args,
     stop: &AtomicBool,
 ) -> Result<(), String> {
@@ -538,6 +586,7 @@ fn player(
         saves.restore_pending(core)?;
     }
     let mut dirty = true;
+    let mut was_paused = paused;
     let mut menu_at = Instant::now();
     let opened = Instant::now();
     // Game & Watch: the unit's photograph scaled smoothly, cut at its hinge or with touch buttons
@@ -693,7 +742,15 @@ fn player(
                 running_audio = false;
                 next = Instant::now();
             }
-            match command(cmd, core, saves, &mut model, &mut paused, &mut fast) {
+            match command(
+                cmd,
+                core,
+                saves,
+                cheevos,
+                &mut model,
+                &mut paused,
+                &mut fast,
+            ) {
                 Ok(true) => return Ok(()),
                 Err(e) => {
                     paused = true;
@@ -709,7 +766,15 @@ fn player(
                     model.notice = e;
                     Command::None
                 });
-                if command(cmd, core, saves, &mut model, &mut paused, &mut fast)? {
+                if command(
+                    cmd,
+                    core,
+                    saves,
+                    cheevos,
+                    &mut model,
+                    &mut paused,
+                    &mut fast,
+                )? {
                     return Ok(());
                 }
                 dirty = true;
@@ -736,7 +801,19 @@ fn player(
         }
         // The Connections page lives while the menu is open (its worker talks to iwd and BlueZ).
         model.keep_connections(paused);
+        // Play resumes from the menu, where the core's options are changed: rcheevos' rules
+        // for them are checked again.
+        if was_paused && !paused {
+            if let Some(c) = cheevos.as_mut() {
+                c.check_options(core);
+            }
+        }
+        was_paused = paused;
         if paused {
+            if let Some(c) = cheevos.as_mut() {
+                c.idle(core);
+                c.show();
+            }
             if brightness.as_mut().is_some_and(|w| w.changed())
                 || volume.as_mut().is_some_and(|w| w.changed())
                 || menu_at.elapsed() > Duration::from_secs(1)
@@ -780,6 +857,11 @@ fn player(
                 factor > 1,
                 occupancy,
             )?);
+            // Every frame the core ran, fast-forward's too, so a condition that holds for one
+            // is seen.
+            if let Some(c) = cheevos.as_mut() {
+                c.frame(core);
+            }
             frames += 1;
             if saves.pending() {
                 saves.restore_pending(core)?;
@@ -807,6 +889,10 @@ fn player(
             if let Some(path) = &args.shot {
                 s.capture_next(path.clone());
             }
+        }
+        if let Some(c) = cheevos.as_mut() {
+            c.show();
+            s.overlays(&mut c.toasts, &mut c.indicators, Instant::now())?;
         }
         let screen_only = watch && prefs.text("show") == "screen";
         if watch && keys.idle() {
@@ -910,6 +996,8 @@ fn player(
 #[cfg(test)]
 mod tests {
     use super::*;
+    /// One libretro core may be open in a process: tests that open one take this first.
+    pub static CORE: std::sync::Mutex<()> = std::sync::Mutex::new(());
     #[test]
     fn lynx_bios_on_either_card_and_explicit_override() {
         let temp = std::env::temp_dir().join(format!("nibcase-bios-{}", std::process::id()));

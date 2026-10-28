@@ -254,3 +254,35 @@ fn the_first_port_takes_a_pad_the_core_offers() {
     assert_eq!(core.memory(RETRO_MEMORY_SAVE_RAM)[10], dualshock as u8);
     assert!(core.set_controller(RETRO_DEVICE_MOUSE).is_err());
 }
+
+/// A core's memory map (`SET_MEMORY_MAPS`) is kept as it gave it, its pointers the core's own,
+/// and its memory ids answer in place: what RetroAchievements reads the console through.
+#[test]
+fn a_cores_memory_map_and_memory_in_place() {
+    let _lock = SERIAL.lock().unwrap();
+    let mut core = Core::open(config()).unwrap();
+    assert!(
+        core.memory_in_place(RETRO_MEMORY_SYSTEM_RAM).is_none(),
+        "no game"
+    );
+    core.load_game(&game(11)).unwrap();
+    assert_eq!(core.memory_maps(), 1);
+    let map = core.memory_map().to_vec();
+    assert_eq!(map.len(), 1);
+    assert_eq!((map[0].start, map[0].len), (0x7E0000, 64));
+    assert!(map[0].addrspace.is_null());
+    let (ram, size) = core.memory_in_place(RETRO_MEMORY_SYSTEM_RAM).unwrap();
+    assert_eq!((ram, size), (map[0].ptr.cast::<u8>(), 64));
+    core.run(1 << RETRO_DEVICE_ID_JOYPAD_A, [0; 2], false, 50)
+        .unwrap();
+    // SAFETY: the core's 64 bytes, read between frames while the game is loaded.
+    let seen = unsafe { std::slice::from_raw_parts(ram, 2) }.to_vec();
+    assert_eq!(seen, [0, 1], "the frame it ran, and the A button");
+    assert!(core.memory_in_place(RETRO_MEMORY_VIDEO_RAM).is_none());
+    drop(core);
+    // A core without a map leaves it empty.
+    let mut core = Core::open(config()).unwrap();
+    core.load_game(&game(0)).unwrap();
+    assert!(core.memory_map().is_empty());
+    assert_eq!(core.memory_maps(), 0);
+}

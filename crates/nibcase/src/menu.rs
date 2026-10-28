@@ -525,6 +525,7 @@ mod tests {
                 rgba: Vec::new(),
             },
             data: Vec::new(),
+            progress: None,
         })
     }
 
