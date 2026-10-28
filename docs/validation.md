@@ -292,3 +292,10 @@ the device (its container is tested). Master System (Stalactites), Neo Geo Pocke
 Neo), WonderSwan (Rotate Dungeon, One Last Lap) and PC Engine (HuC's shmup) ran up to the
 service, which doesn't know these homebrew dumps; HuC's CD example isn't a PC Engine CD to rhash.
 SG-1000 and the Disk System: no game. Those systems stay undeclared.
+
+## Mega Drive buttons (2026-10-28)
+
+BlastEm names its buttons A, B, C, X, Y, Z, Mode and Start; nibcase laid them out as `Y=A B=B A=C
+X=X L=Y R=Z Select=Mode Start=Start`. On the DS+, Aladdin (USA) in the Agrabah market, keys typed
+through a virtual keyboard (uinput): holding the DS+'s A made Aladdin jump; holding R did nothing
+(the six-button pad's Z, which Aladdin doesn't read), and nothing else of Aladdin's is on L or R.

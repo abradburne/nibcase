@@ -47,6 +47,14 @@ row comes by itself from libretro's disk control).
 Nothing else: on install the hook runs `nibcase-test --sync`, which writes the description from
 the core's own options.
 
+### Buttons
+
+A core chooses which RetroPad buttons the console's are on. The log says it at load (`nibcase:
+buttons: the core's: B=B A=A ...`, from its input descriptors). Where the console's pad has a
+layout of its own that the core's choice breaks (BlastEm put the Mega Drive's C on R), add the
+system to `TABLES` in `crates/nibcase/src/layout.rs`: each DS+ button and the name the core gives
+the console's button it should be, and the names a core must give for the table to apply.
+
 ## 4. A pinned core (when Arch's won't do)
 
 `packaging/cores/<core>/PKGBUILD`, as the others: `pkgname=libretro-<core>` (or `-nibos` with

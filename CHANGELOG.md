@@ -16,6 +16,11 @@
   challenges its indicators. User-Agent `nibcase/0.2.0 (nibOS; linux aarch64) <core>/<version>
   rcheevos/12.4`. `NIBCASE_DEBUG=cheevos` logs the requests and how the console was mapped;
   `NIBCASE_PEEK=<address>` logs 4 bytes of the console's memory once a second.
+- **Mega Drive buttons:** the DS+'s Y, B and A are the pad's A, B and C (C, Aladdin's and most
+  games' jump, was on R with BlastEm), X, L and R its X, Y and Z, Select Mode. A small table per
+  system (`layout.rs`) lays the DS+'s buttons out by the names the core gives its own (its input
+  descriptors), so any Mega Drive core gets it; other systems keep the core's layout. Logged at
+  load: `nibcase: buttons: Mega Drive pad: Y=A B=B A=C X=X L=Y R=Z Select=Mode Start=Start`.
 - **Memory maps:** the host answers `RETRO_ENVIRONMENT_SET_MEMORY_MAPS` (kept, the core's pointers
   its own: `Core::memory_map`, `Core::memory_maps`) and gives a core's memory in place
   (`Core::memory_in_place`); `SET_SUPPORT_ACHIEVEMENTS` is accepted.

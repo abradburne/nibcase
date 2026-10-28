@@ -63,7 +63,9 @@ nibcase --core /usr/lib/libretro/snes9x_libretro.so --option snes9x_overclock_su
   (Wi-Fi and Bluetooth on or off, paired headphones connected or disconnected with one press;
   pairing and joining networks stay in DSlot).
 - Face buttons follow their printed labels; the stick can be the D-pad (a setting), or a
-  PlayStation DualShock's analog stick.
+  PlayStation DualShock's analog stick. A Mega Drive game's pad is laid out as the console's,
+  whatever buttons the core chose, by the names it gives them: A, B, C on Y, B, A (C, most
+  games' jump, under the thumb), X, Y, Z on X, L, R, Mode on Select.
 
 The top screen shows the game at a whole-number scale with square pixels, except Game & Watch
 and PlayStation, which are fitted to the panel and scaled smoothly (PlayStation at the

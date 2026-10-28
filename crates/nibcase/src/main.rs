@@ -3,6 +3,7 @@ mod achievements;
 mod audio;
 mod connections;
 mod input;
+mod layout;
 mod menu;
 mod saves;
 mod screens;
@@ -603,6 +604,10 @@ fn player(
     let mut bright = nibcase_libretro::Frame::default();
     let mut gains: Option<((u32, u32), Vec<f32>)> = None;
     let mut pad = prefs.text("pad");
+    // The DS+'s buttons laid out as the system's own pad (layout.rs), from the names the core
+    // gives its buttons; made again whenever it gives others (a pad plugged in, a game loaded).
+    let mut buttons = layout::Layout::core(&[]);
+    let mut described: Option<Vec<(u32, String)>> = None;
     let unit_name = prefs.name.clone();
     let fold = |frame: &nibcase_libretro::Frame| {
         watch
@@ -848,9 +853,16 @@ fn player(
             next = Instant::now();
         }
         let occupancy = (queue.size() / 8 * 100 / 4096).min(100);
+        if described.as_deref() != Some(core.input_descriptors()) {
+            let now = core.input_descriptors().to_vec();
+            buttons = layout::Layout::new(&prefs.system, &now);
+            eprintln!("nibcase: buttons: {}", buttons.said);
+            described = Some(now);
+        }
         let mut samples = Vec::new();
         for _ in 0..factor {
             let pad = input.buttons(prefs.enabled("stick"));
+            let pad = if watch { pad } else { buttons.apply(pad) };
             samples.extend(core.run(
                 if watch { keys.frame(pad) } else { pad },
                 input.analog,

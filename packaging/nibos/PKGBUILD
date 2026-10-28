@@ -14,7 +14,7 @@
 pkgbase=nibcase
 pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed)
 pkgver=0.2.0
-pkgrel=1
+pkgrel=2
 arch=(aarch64)
 url='https://github.com/abradburne/nibcase'
 license=(MIT OFL-1.1)
