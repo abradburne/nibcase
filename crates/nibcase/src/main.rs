@@ -329,14 +329,17 @@ struct FrameTiming {
     core: Duration,
     worst: Duration,
     whole: Duration,
+    /// Drawing both panels and presenting them.
+    draw: Duration,
     /// Frames whose core time was over a refresh (16.7 ms).
     over: u32,
 }
 /// Frames a line of the log covers: two seconds.
 const TIMING_FRAMES: u32 = 120;
 impl FrameTiming {
-    fn frame(&mut self, core: Duration, whole: Duration) {
+    fn frame(&mut self, core: Duration, draw: Duration, whole: Duration) {
         self.frames += 1;
+        self.draw += draw;
         self.core += core;
         self.worst = self.worst.max(core);
         self.whole += whole;
@@ -345,11 +348,12 @@ impl FrameTiming {
             let ms = |d: Duration| d.as_secs_f64() * 1000.0;
             let n = f64::from(TIMING_FRAMES);
             eprintln!(
-                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; the whole frame {:.2}",
+                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; drawing {:.2}; the whole frame {:.2}",
                 ms(self.core) / n,
                 ms(self.worst),
                 self.over,
                 TIMING_FRAMES,
+                ms(self.draw) / n,
                 ms(self.whole) / n
             );
             *self = FrameTiming::default();
@@ -1066,6 +1070,7 @@ fn player(
             }
         }
         let ran = running.elapsed();
+        let drawing = Instant::now();
         // A GPU core's frame drawn from the GPU where it can be; otherwise (and for every
         // software core) the frame, read back.
         let mut drawn = false;
@@ -1168,6 +1173,7 @@ fn player(
                 )?;
             }
         }
+        let drew = drawing.elapsed();
         for message in core.messages() {
             eprintln!("nibcase: {message}");
         }
@@ -1185,7 +1191,7 @@ fn player(
         next += period;
         let after = Instant::now();
         if let Some(t) = timing.as_mut() {
-            t.frame(ran, after - woke);
+            t.frame(ran, drew, after - woke);
         }
         if next > after {
             std::thread::sleep(next - after);
