@@ -57,6 +57,13 @@ pub struct Screens {
     /// Over the game: the toast on show, bottom right, and the indicators, bottom left.
     toast: Overlay,
     indicators: Overlay,
+    /// The volume and brightness indicator (nibkit's `menu::level`, every app's), over the
+    /// game at the bottom right whether or not RetroAchievements is on: what nibOS announces
+    /// of the volume keys, the indicator's timing, and its picture (its serial the level and
+    /// the fade's step). A toast moves up above it while both show.
+    levels: Option<nibkit::levels::LevelWatch>,
+    level: nibkit::menu::level::Indicator,
+    level_overlay: Overlay,
     /// A texture of the top panel's renderer a GPU core's frame is copied into on the GPU
     /// (`play_hw`).
     hw: Option<Hw>,
@@ -137,6 +144,10 @@ fn lay(
     overlay.at = Some(at);
     overlay.serial = serial;
     Ok(())
+}
+/// `at` moved `up` pixels.
+fn raised(at: Rect, up: i32) -> Rect {
+    Rect::new(at.x(), at.y() - up, at.width(), at.height())
 }
 fn native(rect: Region) -> Rect {
     Rect::new(rect.x, rect.y, rect.w, rect.h)
@@ -287,6 +298,9 @@ impl Screens {
             smooth: false,
             toast: Overlay::default(),
             indicators: Overlay::default(),
+            levels: nibkit::levels::watch(),
+            level: nibkit::menu::level::Indicator::new(),
+            level_overlay: Overlay::default(),
             hw: None,
         })
     }
@@ -474,11 +488,17 @@ impl Screens {
     }
     /// The overlays over the game on the top panel, the bottom panel, and both shown.
     fn finish_top(&mut self) -> Result<(), String> {
+        self.level_tick()?;
         let v = self.top;
+        let lift = self.toast_lift();
         let c = &mut self.canvases[v.canvas];
-        for o in [&self.indicators, &self.toast] {
+        for (o, up) in [
+            (&self.indicators, 0),
+            (&self.toast, lift),
+            (&self.level_overlay, 0),
+        ] {
             if let (Some(image), Some(at)) = (&o.image, o.at) {
-                c.copy(&image.texture, None, at)?;
+                c.copy(&image.texture, None, raised(at, up))?;
             }
         }
         // The bottom panel: the card if there is one, else black; on a panel of its own it is
@@ -530,6 +550,8 @@ impl Screens {
             body.src,
             smooth,
         )?;
+        self.level_tick()?;
+        let lift = self.toast_lift();
         let f = |r: (u32, u32, u32, u32)| (r.0 as f32, r.1 as f32, r.2 as f32, r.3 as f32);
         for (v, part, image) in [(self.top, lid, &self.game), (self.bottom, body, &self.body)] {
             let c = &mut self.canvases[v.canvas];
@@ -538,9 +560,13 @@ impl Screens {
             c.fill_rect(native(v.rect))?;
             c.copy(&image.as_ref().unwrap().texture, None, on(v, f(part.dst)))?;
             if v.canvas == self.top.canvas && v.rect == self.top.rect {
-                for o in [&self.indicators, &self.toast] {
+                for (o, up) in [
+                    (&self.indicators, 0),
+                    (&self.toast, lift),
+                    (&self.level_overlay, 0),
+                ] {
                     if let (Some(image), Some(at)) = (&o.image, o.at) {
-                        c.copy(&image.texture, None, at)?;
+                        c.copy(&image.texture, None, raised(at, up))?;
                     }
                 }
             }
@@ -594,6 +620,56 @@ impl Screens {
         }
         Ok(())
     }
+    /// The volume and brightness indicator at this frame: a level nibOS announced shows from
+    /// now; drawn at the top panel's scale, its opacity in its alpha, and uploaded again only
+    /// when the level or the fade's step changes.
+    fn level_tick(&mut self) -> Result<(), String> {
+        let now = Instant::now();
+        if let Some(level) = self.levels.as_mut().and_then(|w| w.changed()) {
+            self.level.show(level, now);
+        }
+        let opacity = self.level.tick(now);
+        let Some(level) = self.level.level().filter(|_| opacity > 0.0) else {
+            self.level_overlay.at = None;
+            return Ok(());
+        };
+        let step = (opacity * 32.0).round() as u64;
+        let what = matches!(level.what, nibkit::levels::What::Brightness) as u64;
+        let serial = 1 + step + (what << 8) + (u64::from(level.percent) << 9);
+        if serial == self.level_overlay.serial && self.level_overlay.at.is_some() {
+            return Ok(());
+        }
+        let v = self.top;
+        let frame = (v.rect.w as usize, v.rect.h as usize);
+        let scale = nibkit::menu::scale_for(frame.0, frame.1);
+        let Some(panel) = self.level.draw(&self.fonts, scale) else {
+            return Ok(());
+        };
+        let ((x, y), w, h) = (panel.place(frame), panel.width(), panel.height());
+        let at = Rect::new(v.rect.x + x as i32, v.rect.y + y as i32, w as u32, h as u32);
+        if let Some(px) = self.level.faded(&self.fonts, scale, opacity) {
+            let px = px.to_vec();
+            lay(
+                &self.creators[v.canvas],
+                &mut self.level_overlay,
+                &px,
+                at,
+                serial,
+            )?;
+        }
+        Ok(())
+    }
+
+    /// How far up the toast goes while the level indicator shows in its corner, in pixels.
+    fn toast_lift(&self) -> i32 {
+        if self.level_overlay.at.is_none() {
+            return 0;
+        }
+        let v = self.top;
+        let scale = nibkit::menu::scale_for(v.rect.w as usize, v.rect.h as usize);
+        self.level.lift(scale) as i32
+    }
+
     /// What the bottom panel shows in play from now on, drawn from `draws`; `None` for black.
     pub fn set_card(&mut self, draws: Option<&[Draw]>) -> Result<(), String> {
         match draws {
@@ -724,6 +800,7 @@ impl Drop for Screens {
             &mut self.card,
             &mut self.toast.image,
             &mut self.indicators.image,
+            &mut self.level_overlay.image,
         ] {
             if let Some(image) = image.take() {
                 // SAFETY: textures are uniquely owned and all renderers outlive this Drop method.
