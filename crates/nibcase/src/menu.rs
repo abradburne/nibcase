@@ -244,6 +244,8 @@ impl Menu {
                     .unwrap()
                     .label(),
             ),
+            // One part a page: nibkit 0.3's sections aren't used.
+            sections: Vec::new(),
             title,
             rows,
             row: self.rows.row,

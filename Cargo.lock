@@ -620,8 +620,8 @@ dependencies = [
 
 [[package]]
 name = "nib-cheevos"
-version = "0.2.1"
-source = "git+https://github.com/abradburne/nibkit?tag=v0.2.1#4403c54f1a8efbf3e3e21b6e09f246e5fd678b1f"
+version = "0.3.0"
+source = "git+https://github.com/abradburne/nibkit?tag=v0.3.0#a4699974f3595a8a5a6080d98c1f0c6e3e12f047"
 dependencies = [
  "cc",
  "chd",
@@ -667,8 +667,8 @@ dependencies = [
 
 [[package]]
 name = "nibkit"
-version = "0.2.1"
-source = "git+https://github.com/abradburne/nibkit?tag=v0.2.1#4403c54f1a8efbf3e3e21b6e09f246e5fd678b1f"
+version = "0.3.0"
+source = "git+https://github.com/abradburne/nibkit?tag=v0.3.0#a4699974f3595a8a5a6080d98c1f0c6e3e12f047"
 dependencies = [
  "fontdue",
  "libc",
