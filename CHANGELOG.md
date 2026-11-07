@@ -41,6 +41,11 @@
   player ends with `_exit`. PPSSPP keeps a `std::thread` among its statics that can still be
   joinable at exit (Burnout Dominator's, once on the DS+); destroying it aborted the process after
   everything was saved, and DSlot said the game had crashed.
+- **A core's game is unloaded before its GL context goes**, and a core that has unloaded its
+  game isn't told the context goes: PPSSPP saves its shader cache when it unloads, and saved
+  nothing when told first (its `PSP/SYSTEM/CACHE` stayed empty, so every launch compiled each
+  shader again mid-game, a stop of up to half a second each time); told after the unload, it
+  crashed. Now the cache is saved, and the next launch precompiles it while loading.
 - **Resuming a core that boots on a thread of its own** (PPSSPP): it has no states just after
   the load, and the game didn't resume. The resume now waits after each frame until the core has
   states (ten seconds at most, then a notice), and quitting before then doesn't write over it.
