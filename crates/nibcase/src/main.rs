@@ -178,11 +178,20 @@ fn run() -> Result<(), String> {
         .saves
         .clone()
         .unwrap_or_else(|| default_saves(rom, &args.system, &name));
-    let bios = bios_dir(
-        args.bios.as_deref(),
-        &nibkit::paths::rom_roots(),
-        &args.system,
-    )?;
+    // A core that reads files of its own package from the system folder (PPSSPP) gets a
+    // folder of nibcase's for it; the others the BIOS folder on the cards.
+    let bios = match (args.bios.as_deref(), core_files(&args.system)) {
+        (None, Some(files)) => files.link(
+            &nibkit::paths::AppDirs::new("nibcase")
+                .data
+                .join(&args.system),
+        )?,
+        _ => bios_dir(
+            args.bios.as_deref(),
+            &nibkit::paths::rom_roots(),
+            &args.system,
+        )?,
+    };
     let mut prefs = Preferences::new(&args.core, &args.system, &name, args.options.clone());
     let mut core = Core::open(Config {
         core: args.core.clone(),
@@ -286,6 +295,52 @@ fn run() -> Result<(), String> {
 /// request to RetroAchievements, rcheevos' own messages and how it maps the console's memory.
 fn debug(word: &str) -> bool {
     std::env::var("NIBCASE_DEBUG").is_ok_and(|d| d.split(',').any(|w| w == word))
+}
+/// Files of a core's own package it reads from `<system>/<folder>/` (PPSSPP its menu's fonts and
+/// the PSP's own fonts from `PPSSPP/`), installed in `from`.
+struct CoreFiles {
+    folder: &'static str,
+    from: PathBuf,
+}
+/// The core files a system's core reads, if any. `NIBCASE_PPSSPP_ASSETS` names another folder
+/// of PPSSPP's (a build's, for tests).
+fn core_files(system: &str) -> Option<CoreFiles> {
+    (system == "PSP").then(|| CoreFiles {
+        folder: "PPSSPP",
+        from: std::env::var_os("NIBCASE_PPSSPP_ASSETS")
+            .map(PathBuf::from)
+            .unwrap_or_else(|| "/usr/share/libretro/ppsspp/PPSSPP".into()),
+    })
+}
+impl CoreFiles {
+    /// `system`, made, with `<folder>/` in it holding a link to each of the package's files
+    /// (made again where the package's moved or a link is missing): the system folder for the
+    /// core, where it may add files of its own beside them.
+    fn link(&self, system: &Path) -> Result<PathBuf, String> {
+        let dir = system.join(self.folder);
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        let entries = std::fs::read_dir(&self.from).map_err(|e| {
+            format!(
+                "the core's files aren't installed in {}: {e}",
+                self.from.display()
+            )
+        })?;
+        for entry in entries.flatten() {
+            let (target, link) = (entry.path(), dir.join(entry.file_name()));
+            match std::fs::read_link(&link) {
+                Ok(at) if at == target => continue,
+                // A file or folder the core made there: its own, left alone.
+                Err(_) if link.symlink_metadata().is_ok() => continue,
+                Ok(_) => {
+                    let _ = std::fs::remove_file(&link);
+                }
+                Err(_) => {}
+            }
+            std::os::unix::fs::symlink(&target, &link)
+                .map_err(|e| format!("{}: {e}", link.display()))?;
+        }
+        Ok(system.to_owned())
+    }
 }
 /// BIOS files may live on either card. An explicit directory always wins. A system that needs
 /// one (`System::bios`: Lynx, PC Engine CD, Disk System) uses the card that has it, and doesn't
@@ -1038,6 +1093,40 @@ mod tests {
         assert_eq!(bios_dir(None, &roots, "PS").unwrap(), temp.join("one/BIOS"));
         std::fs::write(second.join("scph5501.bin"), [1; 16]).unwrap();
         assert_eq!(bios_dir(None, &roots, "PS").unwrap(), second);
+        std::fs::remove_dir_all(temp).unwrap();
+    }
+
+    /// PPSSPP's files are linked into a system folder of nibcase's; a file the core made there is
+    /// kept, a link to where the package no longer is is made again.
+    #[test]
+    fn a_cores_own_files_are_linked_into_its_system_folder() {
+        let temp = std::env::temp_dir().join(format!("nibcase-assets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let package = temp.join("package");
+        std::fs::create_dir_all(package.join("flash0")).unwrap();
+        std::fs::write(package.join("ppge_atlas.zim"), b"atlas").unwrap();
+        let files = CoreFiles {
+            folder: "PPSSPP",
+            from: package.clone(),
+        };
+        let system = files.link(&temp.join("data/PSP")).unwrap();
+        assert_eq!(system, temp.join("data/PSP"));
+        let dir = system.join("PPSSPP");
+        assert_eq!(std::fs::read(dir.join("ppge_atlas.zim")).unwrap(), b"atlas");
+        assert!(dir.join("flash0").is_dir());
+        std::fs::write(dir.join("made.ini"), b"core's").unwrap();
+        std::fs::remove_file(dir.join("flash0")).unwrap();
+        std::os::unix::fs::symlink(temp.join("old"), dir.join("flash0")).unwrap();
+        files.link(&system).unwrap();
+        assert!(dir.join("flash0").is_dir() && dir.join("made.ini").is_file());
+        assert!(CoreFiles {
+            folder: "PPSSPP",
+            from: temp.join("missing"),
+        }
+        .link(&system)
+        .unwrap_err()
+        .contains("aren't installed"));
+        assert!(core_files("PSP").is_some() && core_files("PS").is_none());
         std::fs::remove_dir_all(temp).unwrap();
     }
 

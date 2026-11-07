@@ -1,6 +1,8 @@
-//! A single-threaded libretro software-core host. The pinned header defines the FFI contract.
+//! A single-threaded libretro core host: software cores, and cores that draw with OpenGL ES or
+//! OpenGL (`gl`). The pinned header defines the FFI contract.
 //! Cores are trusted native libraries: these checks do not sandbox a malicious core.
 mod environment;
+mod gl;
 pub mod systems;
 mod video;
 pub use video::Frame;
@@ -104,6 +106,9 @@ struct Context {
     /// Counts the maps the core has given, so a reader built over the last one knows to build
     /// again.
     maps: u32,
+    /// A core that draws with the GPU: what it asked for (its callbacks), and its context.
+    hw: Option<retro_hw_render_callback>,
+    gl: Option<gl::Gl>,
 }
 
 impl Context {
@@ -328,6 +333,8 @@ impl Core {
                 .then(BTreeSet::new),
             memory_map: Vec::new(),
             maps: 0,
+            hw: None,
+            gl: None,
         });
         let mut core = Self {
             api,
@@ -390,10 +397,26 @@ impl Core {
     }
 
     fn call<T>(&mut self, f: impl FnOnce(&Api) -> T) -> T {
+        // A GPU core's context is current while it runs, and only then (gl.rs).
+        if let Some(gl) = self.ctx.gl.as_mut() {
+            gl.enter();
+        }
         let pointer = &mut *self.ctx as *mut Context;
         let previous = CONTEXT.with(|c| c.replace(pointer));
-        let _scope = CallScope(previous);
-        f(&self.api)
+        let out = {
+            let _scope = CallScope(previous);
+            f(&self.api)
+        };
+        // Also after the call that made it (SET_HW_RENDER, in load_game).
+        if let Some(gl) = self.ctx.gl.as_mut() {
+            gl.leave();
+        }
+        out
+    }
+
+    /// Whether the core draws with the GPU (its frames are read back from it).
+    pub fn hardware_rendered(&self) -> bool {
+        self.ctx.gl.is_some()
     }
 
     pub fn info(&self) -> &Info {
@@ -660,6 +683,26 @@ impl Core {
         });
         self.ctx.av = av;
         self.validate_av()?;
+        // A GPU core's framebuffer, as large as its largest frame, then the core told its
+        // context is there (libretro: after load_game succeeds).
+        if let Some(hw) = self.ctx.hw {
+            let (w, h) = (
+                av.geometry.max_width.max(av.geometry.base_width),
+                av.geometry.max_height.max(av.geometry.base_height),
+            );
+            if let Some(gl) = self.ctx.gl.as_mut() {
+                gl.enter();
+                let sized = gl.ensure(w, h);
+                gl.leave();
+                sized?;
+            }
+            if let Some(reset) = hw.context_reset {
+                self.call(|_| {
+                    // SAFETY: the core's own callback, its context current, on its thread.
+                    unsafe { reset() }
+                });
+            }
+        }
         for key in self.ctx.overrides.keys() {
             if !self.ctx.options.contains_key(key) {
                 return Err(format!("unknown core option {key}"));
@@ -843,9 +886,13 @@ impl Core {
 impl Drop for Core {
     fn drop(&mut self) {
         let (loaded, initialized) = (self.loaded, self.initialized);
+        let destroy = self.ctx.hw.and_then(|hw| hw.context_destroy);
         self.call(|a| {
             // SAFETY: library and context remain live during final unload/deinit.
             unsafe {
+                if let (true, Some(destroy)) = (loaded, destroy) {
+                    destroy();
+                }
                 if loaded {
                     (a.unload_game)();
                 }
@@ -854,6 +901,8 @@ impl Drop for Core {
                 }
             }
         });
+        // The core's context goes after the core is done with it.
+        self.ctx.gl = None;
         if let Some(path) = self.extracted.take() {
             let _ = std::fs::remove_dir_all(path);
         }
@@ -886,7 +935,15 @@ unsafe extern "C" fn video_callback(data: *const c_void, width: u32, height: u32
             return;
         } // A duplicate frame retains the previous texture.
         if data as usize == usize::MAX {
-            c.error = Some("hardware-rendered cores are not supported yet".into());
+            // RETRO_HW_FRAME_BUFFER_VALID: the frame is in the core's framebuffer.
+            let origin = c.hw.is_some_and(|hw| hw.bottom_left_origin);
+            match c.gl.as_mut().map(|gl| gl.read(width, height, origin)) {
+                Some(Ok(Some(frame))) => c.frame = frame.rotated(c.rotation),
+                // The first frame through the pixel-pack buffers: the previous picture stays.
+                Some(Ok(None)) => {}
+                Some(Err(error)) => c.error = Some(error),
+                None => c.error = Some("a hardware frame from a core without a context".into()),
+            }
             return;
         }
         let bpp = if c.format == 1 { 4 } else { 2 };
@@ -910,6 +967,19 @@ unsafe extern "C" fn video_callback(data: *const c_void, width: u32, height: u32
         }
     });
 }
+/// The framebuffer a GPU core draws into (`get_current_framebuffer`).
+pub(crate) unsafe extern "C" fn hw_framebuffer() -> usize {
+    gl::current_framebuffer()
+}
+
+/// A GL function, by name, for a GPU core (`get_proc_address`); it may ask from a thread of its
+/// own, so this doesn't need the call's context.
+pub(crate) unsafe extern "C" fn hw_proc_address(
+    name: *const std::ffi::c_char,
+) -> retro_proc_address_t {
+    gl::proc_address(name)
+}
+
 unsafe extern "C" fn audio_sample(left: i16, right: i16) {
     callback((), |c| {
         if c.audio.len() < 2 * 192000 {

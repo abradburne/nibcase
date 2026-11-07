@@ -1,5 +1,24 @@
 # Changelog
 
+## Unreleased
+
+- **PSP**, through PPSSPP (`nibcase-ppsspp`, with `libretro-ppsspp-nibos` built from PPSSPP's
+  v1.20.4 tag for OpenGL ES with its ARM64 JIT): UMDs as `.iso`, `.cso` and `.chd`, PSN downloads
+  as `EBOOT.PBP`, in `Roms/PSP`. No BIOS; the core's own files are linked into
+  `~/.local/share/nibcase/PSP/PPSSPP/`. Shown at 2x, 960 x 544; the stick is the PSP's analog
+  stick. RetroAchievements declared (the memory map checked; a game's placard on the DS+ still to
+  see).
+- **Hardware-rendered cores** (`SET_HW_RENDER`, OpenGL ES 2/3 and OpenGL): a context of the
+  core's own through EGL with no window, made when the core asks and current only while it runs
+  (SDL's is put back after every call), a framebuffer that grows with the core's frames, and the
+  frames read back through two pixel-pack buffers into the usual frame, a frame late. EGL and GL
+  are loaded only when a core asks. `GET_PREFERRED_HW_RENDER` answers OpenGL ES 3;
+  `SET_HW_SHARED_CONTEXT` is accepted.
+- **Handheld defaults and hidden options** per core (`HANDHELD_DEFAULTS`, `HIDDEN_OPTIONS` in
+  `systems.rs`): a default that isn't the core's is the default everywhere (the menu, Y, DSlot's
+  description); a hidden option is in neither menu.
+- nibkit 0.3.0 (from 0.2.1): the menu's `sections`, unused.
+
 ## 0.2.0
 
 - **RetroAchievements** (Casual), through nibkit's `nib-cheevos` (nibkit 0.2.1), for SNES, NES,

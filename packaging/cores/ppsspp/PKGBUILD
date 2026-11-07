@@ -1,0 +1,56 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Arch Linux ARM has PPSSPP's standalone program but no libretro core; this builds the core from
+# the same release, for OpenGL ES 3 (Panfrost on the RG DS+'s Mali-G52), with the ARM64 JIT.
+pkgname=libretro-ppsspp-nibos
+pkgver=1.20.4
+pkgrel=1
+pkgdesc='PPSSPP (PSP) libretro core for nibOS, OpenGL ES with the ARM64 JIT'
+arch=(aarch64)
+url='https://github.com/hrydgard/ppsspp'
+license=(GPL-2.0-or-later)
+depends=(gcc-libs glibc libglvnd libpng snappy zlib zstd)
+makedepends=(cmake git ninja python)
+provides=(libretro-ppsspp)
+conflicts=(libretro-ppsspp)
+source=("ppsspp::git+https://github.com/hrydgard/ppsspp.git#tag=v${pkgver}")
+sha256sums=('SKIP')
+
+prepare() {
+    cd "$srcdir/ppsspp"
+    # Only what the libretro core is built from (OpenXR for its headers): not the iOS, macOS or
+    # test trees.
+    git submodule update --init --recursive --depth 1 -- \
+        ext/SPIRV-Cross ext/armips ext/cpu_features ext/freetype ext/glslang ext/libchdr \
+        ext/lua ext/naett ext/nanosvg ext/rapidjson ext/rcheevos ext/zstd ext/miniupnp \
+        ext/aemu_postoffice ext/OpenXR-SDK ffmpeg libretro/libretro-common
+}
+
+build() {
+    cmake -S "$srcdir/ppsspp" -B "$srcdir/build" -G Ninja \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_C_FLAGS="$CFLAGS -mcpu=cortex-a55" \
+        -DCMAKE_CXX_FLAGS="$CXXFLAGS -mcpu=cortex-a55" \
+        -DLIBRETRO=ON \
+        -DUSING_GLES2=ON \
+        -DUSING_X11_VULKAN=OFF \
+        -DUSE_WAYLAND_WSI=OFF \
+        -DUSE_DISCORD=OFF \
+        -DUSE_MINIUPNPC=OFF \
+        -DUSE_SYSTEM_LIBPNG=ON \
+        -DUSE_SYSTEM_SNAPPY=ON \
+        -DUSE_SYSTEM_ZSTD=ON \
+        -DHEADLESS=OFF \
+        -DUNITTEST=OFF \
+        -DUSE_CCACHE=OFF
+    cmake --build "$srcdir/build" --target ppsspp_libretro
+}
+
+package() {
+    install -Dm755 "$srcdir/build/lib/ppsspp_libretro.so" "$pkgdir/usr/lib/libretro/ppsspp_libretro.so"
+    # The core's assets (its menu's font atlas, the PSP's own fonts, the compatibility lists),
+    # which it reads from <system>/PPSSPP/: nibcase links them there.
+    install -d "$pkgdir/usr/share/libretro/ppsspp"
+    cp -r "$srcdir/ppsspp/assets" "$pkgdir/usr/share/libretro/ppsspp/PPSSPP"
+    rm -rf "$pkgdir/usr/share/libretro/ppsspp/PPSSPP/debugger"
+    install -Dm644 "$srcdir/ppsspp/LICENSE.TXT" "$pkgdir/usr/share/licenses/$pkgname/LICENSE.TXT"
+}

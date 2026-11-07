@@ -12,9 +12,9 @@
 # NIBKIT=<a nibkit checkout> builds against it instead of the tag (nibkit and nib-cheevos patched
 # in, as CONTRIBUTING.md describes; Cargo.lock's nibkit is then replaced in the copy here).
 pkgbase=nibcase
-pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed)
+pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed nibcase-ppsspp)
 pkgver=0.2.0
-pkgrel=2
+pkgrel=3
 arch=(aarch64)
 url='https://github.com/abradburne/nibcase'
 license=(MIT OFL-1.1)
@@ -64,7 +64,7 @@ package_nibcase() {
     pkgdesc='Dual-screen libretro player for nibOS, with automatic DSlot integration'
     # curl carries the requests to RetroAchievements.
     depends=(sdl2-compat curl)
-    optdepends=('nibcase-snes9x: SNES core (separate noncommercial licence)' 'nibcase-nestopia: NES and Disk System core' 'nibcase-blastem: Mega Drive core' 'nibcase-gearsystem: Game Gear, Master System and SG-1000 core' 'nibcase-handy: Lynx core (requires BIOS)' 'nibcase-gw: Game & Watch core' 'nibcase-beetle-pce-fast: PC Engine and PC Engine CD core' 'nibcase-beetle-ngp: Neo Geo Pocket core' 'nibcase-beetle-wswan: WonderSwan core' 'nibcase-pcsx-rearmed: PlayStation core')
+    optdepends=('nibcase-snes9x: SNES core (separate noncommercial licence)' 'nibcase-nestopia: NES and Disk System core' 'nibcase-blastem: Mega Drive core' 'nibcase-gearsystem: Game Gear, Master System and SG-1000 core' 'nibcase-handy: Lynx core (requires BIOS)' 'nibcase-gw: Game & Watch core' 'nibcase-beetle-pce-fast: PC Engine and PC Engine CD core' 'nibcase-beetle-ngp: Neo Geo Pocket core' 'nibcase-beetle-wswan: WonderSwan core' 'nibcase-pcsx-rearmed: PlayStation core' 'nibcase-ppsspp: PSP core (OpenGL ES)')
     cd "$srcdir/nibcase"
     install -Dm755 -t "$pkgdir/usr/bin" target/release/nibcase target/release/nibcase-test
     install -Dm644 packaging/nibos/90-nibcase-cores.hook "$pkgdir/usr/share/libalpm/hooks/90-nibcase-cores.hook"
@@ -142,4 +142,11 @@ package_nibcase-pcsx-rearmed() {
     depends=(nibcase libretro-pcsx-rearmed)
     license=(GPL-2.0-only)
     install -Dm644 "$_root/packaging/cores/pcsx-rearmed/README.md" "$pkgdir/usr/share/doc/nibcase-pcsx-rearmed/README.md"
+}
+
+package_nibcase-ppsspp() {
+    pkgdesc='PSP core for nibcase and automatic DSlot integration'
+    depends=(nibcase libretro-ppsspp)
+    license=(GPL-2.0-or-later)
+    install -Dm644 "$_root/packaging/cores/ppsspp/README.md" "$pkgdir/usr/share/doc/nibcase-ppsspp/README.md"
 }

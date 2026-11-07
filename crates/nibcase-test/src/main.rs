@@ -263,6 +263,14 @@ fn write_png(path: &std::path::Path, frame: &nibcase_libretro::Frame) -> Result<
         .and_then(|mut w| w.write_image_data(&frame.rgba))
         .map_err(|e| e.to_string())
 }
+/// A core's name as `CORES` gives it, from its library's path.
+fn core_stem(path: &std::path::Path) -> String {
+    let stem = path
+        .file_stem()
+        .and_then(|s| s.to_str())
+        .unwrap_or_default();
+    stem.strip_suffix("_libretro").unwrap_or(stem).to_owned()
+}
 /// DSlot's description of the core at `path` (where it is installed), playing `systems`.
 fn description(
     core: &Core,
@@ -316,6 +324,7 @@ fn description(
             d.key
                 .chars()
                 .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+                && !nibcase_libretro::systems::hidden_option(&core_stem(path), &d.key)
         })
         .map(|d| {
             let mut t = toml::Table::new();

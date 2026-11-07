@@ -96,6 +96,7 @@ fn generate_validate_update_and_remove_only_owned_descriptions() {
         ("mednafen_ngp", "NGP"),
         ("mednafen_wswan", "WS"),
         ("pcsx_rearmed", "PS"),
+        ("ppsspp", "PSP"),
     ] {
         let core_library = cores.join(format!("{name}_libretro.so"));
         std::fs::copy(&library, &core_library).unwrap();

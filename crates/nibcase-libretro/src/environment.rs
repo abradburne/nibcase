@@ -2,6 +2,7 @@
 use super::{callback, ffi::*, text, Context, OptionDef};
 use std::collections::BTreeMap;
 use std::ffi::{c_char, c_void, CString};
+use std::os::unix::ffi::OsStrExt;
 
 extern "C" {
     fn nibcase_core_log(level: retro_log_level, format: *const c_char, ...);
@@ -9,9 +10,20 @@ extern "C" {
 
 fn install(c: &mut Context, definitions: Vec<OptionDef>) {
     let mut options = BTreeMap::new();
-    for def in definitions {
+    let core = core_name(&c.core_path);
+    for mut def in definitions {
         if def.values.is_empty() {
             continue;
+        }
+        // The RG DS+'s default where it isn't the core's (systems::HANDHELD_DEFAULTS): the
+        // default everywhere, DSlot's description and Y in the menu included.
+        if crate::systems::hidden_option(&core, &def.key) {
+            def.visible = false;
+        }
+        if let Some(value) = crate::systems::handheld_default(&core, &def.key) {
+            if def.values.iter().any(|v| v.0 == value) {
+                def.default = value.to_owned();
+            }
         }
         let existing = c.values.get(&def.key).and_then(|s| s.to_str().ok());
         let selected = c
@@ -34,6 +46,15 @@ fn install(c: &mut Context, definitions: Vec<OptionDef>) {
         options.insert(def.key.clone(), def);
     }
     c.options = options;
+}
+
+/// A core's name, as `CORES` gives it: its library's file name without `_libretro.so`.
+fn core_name(path: &CString) -> String {
+    let path = std::path::Path::new(std::ffi::OsStr::from_bytes(path.as_bytes()));
+    path.file_stem()
+        .and_then(|s| s.to_str())
+        .map(|s| s.strip_suffix("_libretro").unwrap_or(s).to_owned())
+        .unwrap_or_default()
 }
 
 unsafe fn option_values(values: &[retro_core_option_value]) -> Vec<(String, String)> {
@@ -190,8 +211,48 @@ pub(super) unsafe extern "C" fn environment(command: u32, data: *mut c_void) -> 
                 }
                 RETRO_ENVIRONMENT_SET_SYSTEM_AV_INFO => {
                     c.av = *data.cast::<retro_system_av_info>();
+                    // A GPU core's frames may have grown (a higher internal resolution): its
+                    // framebuffer grows with them, keeping its name. Its context is current.
+                    if let Some(gl) = c.gl.as_mut() {
+                        let g = c.av.geometry;
+                        if let Err(e) = gl.ensure(g.max_width, g.max_height) {
+                            c.error = Some(e);
+                        }
+                    }
                     true
                 }
+                // A core that draws with the GPU: OpenGL ES or OpenGL through EGL (gl.rs). Its
+                // context is made now and current whenever it runs; its framebuffer is made
+                // once the game is loaded, when its size is known.
+                RETRO_ENVIRONMENT_SET_HW_RENDER => {
+                    let hw = &mut *data.cast::<retro_hw_render_callback>();
+                    let Some(kind) = crate::gl::Kind::of(hw) else {
+                        return false;
+                    };
+                    if c.gl.as_ref().is_some_and(|gl| gl.kind() != kind) {
+                        return false;
+                    }
+                    if c.gl.is_none() {
+                        match crate::gl::Gl::new(kind, hw.depth, hw.stencil) {
+                            Ok(gl) => c.gl = Some(gl),
+                            Err(e) => {
+                                eprintln!("nibcase: no {kind:?} context for the core: {e}");
+                                return false;
+                            }
+                        }
+                    }
+                    hw.get_current_framebuffer = Some(crate::hw_framebuffer);
+                    hw.get_proc_address = Some(crate::hw_proc_address);
+                    c.hw = Some(*hw);
+                    true
+                }
+                // OpenGL ES 3: what EGL makes on the RG DS+'s GPU.
+                RETRO_ENVIRONMENT_GET_PREFERRED_HW_RENDER => {
+                    *data.cast::<u32>() = retro_hw_context_type_RETRO_HW_CONTEXT_OPENGLES3;
+                    true
+                }
+                // Its context is its own already: nothing else draws in it.
+                RETRO_ENVIRONMENT_SET_HW_SHARED_CONTEXT => true,
                 RETRO_ENVIRONMENT_SET_GEOMETRY => {
                     let geometry = *data.cast::<retro_game_geometry>();
                     if geometry.base_width == 0
@@ -283,8 +344,10 @@ pub(super) unsafe extern "C" fn environment(command: u32, data: *mut c_void) -> 
                 }
                 RETRO_ENVIRONMENT_SET_CORE_OPTIONS_DISPLAY => {
                     let display = &*data.cast::<retro_core_option_display>();
-                    if let Some(option) = c.options.get_mut(&text(display.key)) {
-                        option.visible = display.visible;
+                    let key = text(display.key);
+                    let hidden = crate::systems::hidden_option(&core_name(&c.core_path), &key);
+                    if let Some(option) = c.options.get_mut(&key) {
+                        option.visible = display.visible && !hidden;
                         true
                     } else {
                         false

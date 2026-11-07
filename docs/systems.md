@@ -26,11 +26,12 @@ game; disc systems never do.
 | WonderSwan (Color) | `WS` | `.ws` `.wsc` | Beetle Cygne | GPL-2.0 | `libretro-beetle-wswan`, pinned 4b01295 |
 | Game & Watch | `GW` | `.mgw` | gw-libretro | Zlib | `libretro-gw`, pinned 91d599b |
 | PlayStation | `PS` | `.chd` `.cue` (+ tracks) `.pbp` `.m3u` | PCSX ReARMed | GPL-2.0 | `libretro-pcsx-rearmed-nibos`, pinned c881679 |
+| PSP | `PSP` | `.iso` `.cso` `.chd` `.pbp` | PPSSPP | GPL-2.0-or-later | `libretro-ppsspp-nibos`, release v1.20.4 |
 
 Each core has a small package of nibcase's, `nibcase-<core>` (`nibcase-snes9x`,
 `nibcase-nestopia`, `nibcase-blastem`, `nibcase-gearsystem`, `nibcase-handy`, `nibcase-gw`,
 `nibcase-beetle-pce-fast`, `nibcase-beetle-ngp`, `nibcase-beetle-wswan`,
-`nibcase-pcsx-rearmed`), which depends on the core's and registers it with DSlot: an alpm hook
+`nibcase-pcsx-rearmed`, `nibcase-ppsspp`), which depends on the core's and registers it with DSlot: an alpm hook
 runs `nibcase-test --sync`, which asks the installed core for its options and writes
 `/usr/share/dslot/emulators/nibcase-<core>.toml`, with one `[systems]` entry for each system the
 core plays. Pinned cores are built from `packaging/cores/<core>/PKGBUILD`. The frontend never
@@ -41,10 +42,12 @@ non-commercial core**: it must never be part of any commercial distribution. Eve
 listed is free (GPL-2.0, GPL-3.0 or Zlib) and may be distributed with the usual obligations
 (the core's source for the GPL ones).
 
-**`.chd` and `.cue`** belong to PC Engine CD and PlayStation both: the folder decides which.
+**`.chd` and `.cue`** belong to PC Engine CD and PlayStation both, and `.chd` and `.pbp` to the
+PSP too: the folder decides which.
 
 **RetroAchievements** (Casual) are earned for SNES, NES, Mega Drive, Game Gear, Lynx and
-PlayStation, the systems checked on the device; [RetroAchievements](retroachievements.md) says how,
+PlayStation, the systems checked on the device, and the PSP, whose memory map was checked but not
+yet a game's placard; [RetroAchievements](retroachievements.md) says how,
 and what the others wait for.
 
 ## BIOS
@@ -147,6 +150,32 @@ different conversion of a unit is drawn whole, never cut wrongly.
   percentile is about 14.7 ms: occasional frames cost nearly a whole frame. Not yet profiled
   (disc reads and recompiling are suspected); a race not yet measured. Enhanced resolution is
   left off until this is understood. See [validation](validation.md).
+
+### PSP
+
+- **Games:** a UMD as `.iso`, `.cso` (compressed) or `.chd` (`chdman createdvd`), or a PSN
+  download's `EBOOT.PBP`, on its own or in a folder of its own (`Roms/PSP/<Game>/EBOOT.PBP`, which
+  DSlot names after the folder). Never zipped.
+- **No BIOS.** The core implements the PSP's firmware itself. Its own files (its fonts, the PSP's
+  fonts, its compatibility list) come with the core's package and are linked into a system folder
+  of nibcase's, `~/.local/share/nibcase/PSP/PPSSPP/`, made again if a link is missing.
+- **Saves:** the game's memory stick is its saves folder: `PSP/SAVEDATA/` there, beside its states.
+- **The GPU:** the only core that draws with it. nibcase makes it an OpenGL ES 3 context through EGL
+  with no window (Mesa's surfaceless platform), current only while the core runs, and a framebuffer
+  as large as the core's largest frame (it grows with the Rendering Resolution). Each frame is read
+  back through two pixel-pack buffers, so the picture is a frame late and the CPU never waits for
+  the GPU; from there it is a frame like any core's (the pause picture, the states' thumbnails).
+- **Screen:** 480 x 272 (480 x 270 with Crop to 16x9, the core's default) at twice its size by
+  whole steps, 960 x 544, with square pixels.
+- **Controls:** face buttons by position (B Cross, A Circle, Y Square, X Triangle), L, R, the
+  D-pad, and the stick as the PSP's analog stick: Stick as D-pad is off by default for the PSP.
+- **Defaults** that aren't the core's (`HANDHELD_DEFAULTS`): Backend OpenGL (there is no Vulkan
+  context to try) and the PSP-1000's 32 MB, which every UMD game runs on, so that a state, which
+  holds the PSP's memory whole, is half the size. Homebrew run as an ELF or a loose PBP gets 64 MB
+  whatever the setting, and its states are over the 64 MiB nibcase keeps.
+- **Hidden options** (`HIDDEN_OPTIONS`): networking (ad hoc play needs a server and addresses
+  nibcase can't set up), the backend and cheats (RetroAchievements refuses a game with cheats on).
+  41 of the core's 76 options are shown.
 
 ## What every system shares
 

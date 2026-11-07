@@ -27,6 +27,10 @@ pub enum System {
     /// Sony PlayStation: discs as `.chd`, `.cue` with its tracks, `.pbp`, or an `.m3u` listing a
     /// game's discs. The BIOS is the player's own and optional (the core has its own, HLE).
     PlayStation,
+    /// Sony PSP: UMDs as `.iso`, `.cso` or `.chd`, and PSN downloads as `EBOOT.PBP` (often in a
+    /// folder of their own). No BIOS: the core has its own firmware (HLE). The core draws with the
+    /// GPU (OpenGL ES 3).
+    Psp,
 }
 /// A core nibcase registers with DSlot: `/usr/lib/libretro/<name>_libretro.so`, described as
 /// `nibcase-<name>`, playing these systems (the first is the one it is inferred for).
@@ -76,9 +80,69 @@ pub const CORES: &[CoreSpec] = &[
         name: "pcsx_rearmed",
         systems: &[System::PlayStation],
     },
+    CoreSpec {
+        name: "ppsspp",
+        systems: &[System::Psp],
+    },
 ];
+/// Core options whose default on the RG DS+ isn't the core's own, by core: (key, value). Each is
+/// measured on the device (docs/validation.md); a value the core doesn't offer is ignored.
+pub const HANDHELD_DEFAULTS: &[(&str, &[(&str, &str)])] = &[(
+    "ppsspp",
+    &[
+        // nibcase's context is OpenGL ES; there is no Vulkan to try first.
+        ("ppsspp_backend", "opengl"),
+        // The 32 MB PSP-1000, which every UMD game runs on: a state is half the size (the
+        // core's states hold the PSP's memory whole; over 64 MiB they aren't kept).
+        ("ppsspp_psp_model", "psp_1000"),
+    ],
+)];
+
+/// Core options never shown, in the player's menu or DSlot's, by core: keys, or the start of
+/// keys ending in `*`. PPSSPP's networking (a MAC address and a server's address digit by digit,
+/// for ad hoc play nibcase has no way to set up), its backend (nibcase's context is OpenGL ES
+/// only) and its cheats (RetroAchievements refuses a game played with them).
+pub const HIDDEN_OPTIONS: &[(&str, &[&str])] = &[(
+    "ppsspp",
+    &[
+        "ppsspp_backend",
+        "ppsspp_cheats",
+        "ppsspp_change_mac_address*",
+        "ppsspp_pro_ad_hoc_server_address*",
+        "ppsspp_change_pro_ad_hoc_server_address",
+        "ppsspp_enable_builtin_pro_ad_hoc_server",
+        "ppsspp_enable_wlan",
+        "ppsspp_wlan_channel",
+        "ppsspp_enable_upnp",
+        "ppsspp_upnp_use_original_port",
+        "ppsspp_port_offset",
+        "ppsspp_forced_first_connect",
+        "ppsspp_minimum_timeout",
+    ],
+)];
+
+/// Whether a core's option is never shown ([`HIDDEN_OPTIONS`]).
+pub fn hidden_option(core: &str, key: &str) -> bool {
+    HIDDEN_OPTIONS
+        .iter()
+        .filter(|(c, _)| *c == core)
+        .flat_map(|(_, keys)| keys.iter())
+        .any(|k| match k.strip_suffix('*') {
+            Some(start) => key.starts_with(start),
+            None => key == *k,
+        })
+}
+
+/// The RG DS+'s default for a core's option, where it isn't the core's.
+pub fn handheld_default(core: &str, key: &str) -> Option<&'static str> {
+    HANDHELD_DEFAULTS
+        .iter()
+        .find(|(c, _)| *c == core)
+        .and_then(|(_, options)| options.iter().find(|(k, _)| *k == key))
+        .map(|(_, v)| *v)
+}
 impl System {
-    pub const ALL: [Self; 14] = [
+    pub const ALL: [Self; 15] = [
         Self::Snes,
         Self::Nes,
         Self::MegaDrive,
@@ -93,6 +157,7 @@ impl System {
         Self::DiskSystem,
         Self::Sg1000,
         Self::PlayStation,
+        Self::Psp,
     ];
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|s| s.id() == id)
@@ -114,6 +179,7 @@ impl System {
             Self::DiskSystem => "FDS",
             Self::Sg1000 => "SG1000",
             Self::PlayStation => "PS",
+            Self::Psp => "PSP",
         }
     }
     pub fn label(self) -> &'static str {
@@ -132,6 +198,7 @@ impl System {
             Self::DiskSystem => "Disk System",
             Self::Sg1000 => "SG-1000",
             Self::PlayStation => "PlayStation",
+            Self::Psp => "PSP",
         }
     }
     pub fn extensions(self) -> &'static [&'static str] {
@@ -152,6 +219,8 @@ impl System {
             Self::Sg1000 => &["sg"],
             // An .m3u lists a game's discs; .cue lists a disc's tracks (the .bin files).
             Self::PlayStation => &["m3u", "chd", "cue", "pbp"],
+            // A UMD (plain, CSO-compressed or a DVD CHD), or a PSN download's EBOOT.PBP.
+            Self::Psp => &["iso", "cso", "chd", "pbp"],
         }
     }
     /// The core that plays it by default.
@@ -183,7 +252,7 @@ impl System {
     }
     /// Whether its games are discs (never zipped, often several files).
     pub fn discs(self) -> bool {
-        matches!(self, Self::PcEngineCd | Self::PlayStation)
+        matches!(self, Self::PcEngineCd | Self::PlayStation | Self::Psp)
     }
     /// Whether its games earn RetroAchievements in nibcase: DSlot passes the sign-in to a core
     /// only for the systems its description declares (`[achievements]`), and these are the ones
@@ -199,6 +268,7 @@ impl System {
                 | Self::GameGear
                 | Self::Lynx
                 | Self::PlayStation
+                | Self::Psp
         )
     }
     /// The BIOS file it needs in `BIOS/`, if any.
@@ -413,7 +483,17 @@ mod tests {
             .filter(|s| s.achievements())
             .map(System::id)
             .collect();
-        assert_eq!(earning, ["SFC", "FC", "MD", "GG", "LYNX", "PS"]);
+        assert_eq!(earning, ["SFC", "FC", "MD", "GG", "LYNX", "PS", "PSP"]);
+    }
+    #[test]
+    fn handheld_defaults_and_hidden_options() {
+        assert_eq!(handheld_default("ppsspp", "ppsspp_backend"), Some("opengl"));
+        assert_eq!(handheld_default("ppsspp", "ppsspp_frameskip"), None);
+        assert_eq!(handheld_default("snes9x", "ppsspp_backend"), None);
+        assert!(hidden_option("ppsspp", "ppsspp_change_mac_address07"));
+        assert!(hidden_option("ppsspp", "ppsspp_cheats"));
+        assert!(!hidden_option("ppsspp", "ppsspp_internal_resolution"));
+        assert!(!hidden_option("snes9x", "ppsspp_cheats"));
     }
     #[test]
     fn inference_and_cartridge_scope() {
@@ -429,6 +509,16 @@ mod tests {
             Some(System::Nes)
         );
         assert!(!System::Nes.takes(Path::new("disk.fds")));
+        // A UMD is the PSP's by its extension; a PSN download's EBOOT.PBP by its folder (DSlot
+        // passes --system PSP for one in a folder of its own).
+        assert_eq!(System::from_rom(Path::new("Game.iso")), Some(System::Psp));
+        assert_eq!(System::from_rom(Path::new("Game.cso")), Some(System::Psp));
+        assert_eq!(
+            System::from_rom(Path::new("/Roms/PSP/Game.chd")),
+            Some(System::Psp)
+        );
+        assert_eq!(System::Psp.default_core(), "ppsspp");
+        assert!(System::Psp.discs() && !System::Psp.takes(Path::new("Game.zip")));
         assert!(!System::Nes.takes(Path::new("music.nsf")));
     }
 }

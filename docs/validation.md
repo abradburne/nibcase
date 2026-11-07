@@ -17,6 +17,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | Disk System | — | registered, BIOS check tested | gameplay (no free homebrew found) |
 | SG-1000 | — | registered | gameplay (no free homebrew found) |
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
+| PSP | test programs, in an aarch64 VM on Mesa's llvmpipe | not yet | everything on the DS+: the cost per frame on Panfrost, the defaults, a game's placard |
 
 ## The first SNES release, 2026-10-20
 
@@ -24,7 +25,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 
 `make check`: formatting, clippy with warnings denied, workspace tests, and desktop/stock feature
 build checks. The host's original C fixture exercises all three software pixel formats,
-padded pitch, duplicate frames, geometry changes, hardware-frame refusal, joypad mapping,
+padded pitch, duplicate frames, geometry changes, a hardware frame from a core without a context refused, joypad mapping,
 stereo single/batch audio, option visibility, serialization continuation, SRAM sizes, stored
 and deflated ZIPs, and the one-core process guard. Frontend tests cover streaming resampling
 (chunk continuity, DC gain, alias rejection and queue correction), state containers/corruption,
@@ -299,3 +300,30 @@ BlastEm names its buttons A, B, C, X, Y, Z, Mode and Start; nibcase laid them ou
 X=X L=Y R=Z Select=Mode Start=Start`. On the DS+, Aladdin (USA) in the Agrabah market, keys typed
 through a virtual keyboard (uinput): holding the DS+'s A made Aladdin jump; holding R did nothing
 (the six-button pad's Z, which Aladdin doesn't read), and nothing else of Aladdin's is on L or R.
+
+## PSP (2026-11-07)
+
+Core: PPSSPP v1.20.4, built from its release tag for OpenGL ES with the ARM64 JIT
+(`packaging/cores/ppsspp`). Not yet run on the DS+ (the device was off the network): these runs
+were in the `rgbuild` VM (aarch64 Arch Linux ARM) on Mesa 26.2's llvmpipe, OpenGL ES 3.2, with
+PSP test programs (pspautotests' demos, read in place, never committed).
+
+- **The GPU path:** the core asks for OpenGL ES 2 and gets Mesa's 3.2; nibcase reads its version
+  and uses pixel-pack buffers. Context reset after the load, frames of 480 x 270, the context
+  destroyed at the end. A hello-world's text comes out top first and in its colours; a spinning
+  textured cube draws (`cubevfpu`).
+- **The framebuffer from another thread:** PPSSPP asks for it from its emulation thread, where
+  the call's context isn't set: until the name was kept for any thread, it drew into
+  framebuffer 0 and every frame was black.
+- **States:** with the PSP-1000 model a state continues identically (`--state-check`); the 64 MB
+  model's are over 64 MiB and aren't kept.
+- **RetroAchievements:** an `EBOOT.PBP` hashed; rcheevos mapped 32 MiB of RAM from $000000
+  (0x800000 bytes, then 0x1800000) and the upper half as filler; the sign-in (a dummy token) was
+  refused, as it should be.
+- **The player headless:** the assets linked into `~/.local/share/nibcase/PSP/PPSSPP/`, the
+  core's memory stick made in the saves folder (`PSP/SAVEDATA`, `PSP/SYSTEM`).
+- **The description:** `[achievements] systems = ["PSP"]`, 41 options, Backend and cheats hidden,
+  PSP model defaulting to the PSP-1000.
+
+Booting takes the core's loader thread a moment: a bench of 60 frames ends before the program
+starts (p50 0.04 ms); use thousands of frames.

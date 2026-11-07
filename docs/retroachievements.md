@@ -14,6 +14,7 @@ report picks it up. Code: `crates/nibcase/src/achievements.rs`.
 | Game Gear | yes | Crystal Warriors: 0 of 73 |
 | Atari Lynx | yes | California Games: 0 of 14 |
 | PlayStation | yes | Gran Turismo (a `.chd`): 0 of 68 |
+| PSP | yes (placard not yet seen) | homebrew in a VM: identified (`EBOOT.PBP`), the memory mapped as below; a game with a set still to be played on the DS+ |
 | Master System, Neo Geo Pocket, WonderSwan, PC Engine | not yet | only homebrew to hand, which the service doesn't know: signed in, identified, the memory mapped, "does not recognise this dump" |
 | SG-1000, Disk System, PC Engine CD | not yet | no game with a set to hand |
 | Game & Watch | no | rcheevos 12.4 has no hash rule for `.mgw` units |
@@ -61,6 +62,7 @@ RAM only after a frame). What each core gave on the DS+:
 | Gearsystem | memory ids | 8 KiB of RAM, 32 KiB of cartridge RAM |
 | Handy | memory ids | 64 KiB |
 | PCSX ReARMed | memory map | 2 MiB of RAM, the scratchpad |
+| PPSSPP | memory ids | 32 MiB of user RAM at the service's $000000 ($800000 on is the game's), the upper 32 MiB of a 64 MiB model as filler |
 | Beetle PCE Fast | memory map | 8 KiB (PC Engine); with the CD's RAMs and the battery RAM (CD) |
 | Beetle NeoPop, Beetle Cygne | memory ids | 16 KiB; 64 KiB |
 
@@ -97,3 +99,12 @@ address once a second, for a check like this).
 Casual: 0 of 71 unlocked`, `cheevos: Achievement unlocked: ... (5 points) -- ...`.
 `NIBCASE_DEBUG=cheevos` adds every request, rcheevos' own messages, the game's hash and how
 `rc_libretro` mapped the console.
+
+## The PSP
+
+The PSP earns from this release, though no game with a set has been played on the DS+ yet; the
+hash and the memory were checked in an aarch64 VM with homebrew, signed in with a token the
+service refused. A UMD is identified by rhash's rule, its `PARAM.SFO` and `EBOOT.BIN`, from an ISO,
+a CSO (nib-cheevos' CSO reader) or a DVD CHD (its CHD reader); a PSN download by its whole
+`EBOOT.PBP`. rcheevos' only rule for PPSSPP is that cheats be off: the option is hidden. The core
+has RetroAchievements of its own built in, unused: nibcase's session is the one signed in.

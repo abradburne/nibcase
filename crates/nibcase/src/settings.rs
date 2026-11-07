@@ -45,7 +45,8 @@ fn choice(key: &str, label: &str, values: &[(&str, &str)], default: &str) -> Def
 /// raster of pixels, so it is fitted to the panel by default rather than scaled by whole steps,
 /// and it can be shown whole or as its LCDs alone. A PlayStation game changes resolution as it
 /// goes (320 x 240, 512 x 240, 640 x 480) on a 4:3 television, so it is fitted at the TV's
-/// shape; its pad is the player's choice.
+/// shape; its pad is the player's choice. A PSP game's 480 x 272 is twice as large on the panel
+/// (960 x 544) by whole steps with square pixels, as every cartridge's is; its stick is the PSP's.
 pub fn frontend(system: &str) -> Vec<Def> {
     let mut defs = vec![
         choice(
@@ -83,12 +84,13 @@ pub fn frontend(system: &str) -> Vec<Def> {
             levels: Levels::CONSOLE_AND_GAME,
             default: Some(true.into()),
         },
+        // A PSP has an analog stick of its own: the stick is that, and the D-pad the D-pad.
         Def {
             key: "stick".into(),
             label: "Stick as D-pad".into(),
             kind: Kind::Toggle,
             levels: Levels::CONSOLE_AND_GAME,
-            default: Some(true.into()),
+            default: Some((system != "PSP").into()),
         },
     ];
     if system == "PS" {

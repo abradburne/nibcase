@@ -85,4 +85,6 @@ implementation follows the vendored MIT libretro header's counter-clockwise quar
   (haroldo-ok, MIT, v0.6), SwanSong Originals (RegionallyFamous, MIT, v3.3.0: Rotate Dungeon,
   Orbital Courier, One Last Lap), Asteroids Neo (underscore42), and PC Engine samples built from
   HuC's own examples (pce-devel/huc 54f5c73: shmup, scroll, promotion).
-
+| https://github.com/hrydgard/ppsspp (tag v1.20.4): `CMakeLists.txt`, `.gitmodules`, `LICENSE.TXT` | The PSP core's build options and submodules for `packaging/cores/ppsspp/PKGBUILD`, and its licence. Its implementation was not read; it is run as a black box. |
+| https://registry.khronos.org/EGL/ and the OpenGL ES 3.0 specification | EGL display, configuration, context and current-context calls; framebuffer objects, pixel-pack buffers and fences for the hardware-rendered core path (`crates/nibcase-libretro/src/gl.rs`). |
+| https://github.com/hrydgard/pspautotests | PSP test programs (`demos/`) run in a VM to check the GPU path; not committed. |
