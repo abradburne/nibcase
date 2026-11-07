@@ -19,6 +19,12 @@
   parts, `NIBCASE_DEBUG=frames` the core's time a frame; the loop's error is said before the core
   is torn down. `GET_PREFERRED_HW_RENDER` answers OpenGL ES 3;
   `SET_HW_SHARED_CONTEXT` is accepted.
+- **A GPU core's frames reach the screen without a dma-buf:** its context is made in the top
+  panel's renderer's share group (`share_with_current_context`), and each frame is copied on the
+  GPU into the panel's texture (`Core::hw_shared`, `copy_shared_frame`) after a fence. Importing
+  an exported dma-buf into SDL's display, as before, made the display controller's driver fail to
+  map it at every launch and, after about 80, every frame came out white until a reboot. The
+  dma-buf export is gone.
 - **PSP: framebuffer copies on the GPU.** Panfrost does glCopyImageSubData on the CPU, waiting for
   the GPU first; PPSSPP uses it for every effect drawn into a texture. nibcase hides the extension
   from it (`systems::CORE_ENV`, `MESA_EXTENSION_OVERRIDE`, set before the first GL context, by the

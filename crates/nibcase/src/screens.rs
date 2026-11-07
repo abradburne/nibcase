@@ -1,6 +1,6 @@
 //! SDL owns both panels throughout play. Textures and menu rasters are reused across frames.
 use crate::unit::Part;
-use nibcase_libretro::{Export, Frame, Imported};
+use nibcase_libretro::{Frame, SharedFrame};
 use nibkit::menu::indicators::Indicators;
 use nibkit::menu::raster::{Canvas as Raster, Fonts};
 use nibkit::menu::toast;
@@ -57,16 +57,14 @@ pub struct Screens {
     /// Over the game: the toast on show, bottom right, and the indicators, bottom left.
     toast: Overlay,
     indicators: Overlay,
-    /// A GPU core's colour buffer, imported as a texture of the top panel's renderer: drawn
-    /// from with no copy (`play_hw`).
+    /// A texture of the top panel's renderer a GPU core's frame is copied into on the GPU
+    /// (`play_hw`).
     hw: Option<Hw>,
 }
-/// A texture whose storage is a GPU core's exported colour buffer, for the export's
-/// generation.
+/// The top panel's texture a GPU core's frames are copied into, the size of its framebuffer.
 struct Hw {
     texture: Texture,
-    _image: Imported,
-    generation: u64,
+    size: (u32, u32),
 }
 fn upload(
     creator: &TextureCreator<WindowContext>,
@@ -392,54 +390,60 @@ impl Screens {
     pub fn gpu(&self) -> bool {
         !self.dummy
     }
-    /// A GPU core's frame, `size` at the corner of the colour buffer it exported (the GL way
-    /// up), drawn on the top panel as `play` draws a frame, without copying it: the export is
-    /// imported as a texture once for each generation.
+    /// The top panel's renderer's GL context made current, for a GPU core's context to be made
+    /// in its share group (`nibcase_libretro::share_with_current_context`): SDL makes it
+    /// current to bind one of its textures.
+    pub fn top_gl_current(&mut self) -> Result<(), String> {
+        let mut texture = self.creators[self.top.canvas]
+            .create_texture_static(PixelFormatEnum::RGBA32, 1, 1)
+            .map_err(|e| e.to_string())?;
+        // SAFETY: binds and unbinds the renderer's own texture on its context, then destroys
+        // it; the context stays current.
+        unsafe {
+            texture.gl_bind_texture();
+            texture.gl_unbind_texture();
+            texture.destroy();
+        }
+        Ok(())
+    }
+    /// A GPU core's frame, `size` at the corner of its framebuffer (the GL way up), copied on
+    /// the GPU into a texture of the top panel's renderer and drawn as `play` draws a frame.
     pub fn play_hw(
         &mut self,
-        generation: u64,
-        export: &Export,
+        frame: &SharedFrame,
         size: (u32, u32),
         aspect: f32,
         fit: bool,
         tv: bool,
     ) -> Result<(), String> {
-        if self.hw.as_ref().is_none_or(|h| h.generation != generation) {
+        if self.hw.as_ref().is_none_or(|h| h.size != frame.size) {
             if let Some(old) = self.hw.take() {
                 // SAFETY: uniquely owned; its renderer is alive on this thread.
                 unsafe { old.texture.destroy() };
             }
             let mut texture = self.creators[self.top.canvas]
-                .create_texture_static(PixelFormatEnum::RGBA32, export.width, export.height)
+                .create_texture_static(PixelFormatEnum::RGBA32, frame.size.0, frame.size.1)
                 .map_err(|e| e.to_string())?;
             texture.set_blend_mode(BlendMode::None);
-            // SAFETY: binds the renderer's own texture in its context, current from here to
-            // the unbind; the import gives it new storage there.
-            let imported = unsafe {
-                texture.gl_bind_texture();
-                let imported = Imported::into_bound_texture(export);
-                texture.gl_unbind_texture();
-                imported
-            };
-            let image = match imported {
-                Ok(image) => image,
-                Err(e) => {
-                    // SAFETY: as above.
-                    unsafe { texture.destroy() };
-                    return Err(e);
-                }
-            };
             eprintln!(
-                "nibcase: drawing frames from the GPU ({} x {} dma-buf, modifier {:#x})",
-                export.width, export.height, export.modifier
+                "nibcase: drawing frames from the GPU ({} x {}, copied on it)",
+                frame.size.0, frame.size.1
             );
             self.hw = Some(Hw {
                 texture,
-                _image: image,
-                generation,
+                size: frame.size,
             });
         }
         let hw = self.hw.as_mut().unwrap();
+        // SAFETY: binds the renderer's own texture on its context, current until the unbind;
+        // the copy writes into it there.
+        let copied = unsafe {
+            hw.texture.gl_bind_texture();
+            let copied = nibcase_libretro::copy_shared_frame(frame, size.0, size.1);
+            hw.texture.gl_unbind_texture();
+            copied
+        };
+        copied?;
         hw.texture.set_scale_mode(if self.smooth {
             ScaleMode::Linear
         } else {

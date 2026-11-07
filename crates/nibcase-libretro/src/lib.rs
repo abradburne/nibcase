@@ -5,7 +5,7 @@ mod environment;
 mod gl;
 pub mod systems;
 mod video;
-pub use gl::{Export, Imported};
+pub use gl::{copy_shared_frame, share_with_current_context, SharedFrame};
 pub use video::Frame;
 #[allow(
     non_camel_case_types,
@@ -110,8 +110,8 @@ struct Context {
     /// A core that draws with the GPU: what it asked for (its callbacks), and its context.
     hw: Option<retro_hw_render_callback>,
     gl: Option<gl::Gl>,
-    /// A GPU core's frames left on the GPU for the player to draw from the dma-buf
-    /// ([`Core::hw_export`]): not read back, except when asked ([`Core::refresh_frame`]). The
+    /// A GPU core's frames left on the GPU for the player to copy from ([`Core::hw_shared`]):
+    /// not read back, except when asked ([`Core::refresh_frame`]). The
     /// last frame's size, and whether `frame` is older than it.
     direct: bool,
     hw_size: (u32, u32),
@@ -429,16 +429,11 @@ impl Core {
         self.ctx.gl.is_some()
     }
 
-    /// A GPU core's colour buffer as a dma-buf, and its generation (a new one when the
-    /// framebuffer has grown and the export must be imported again); `None` for a software
-    /// core or when EGL can't export it. Asking for it leaves the frames on the GPU
-    /// ([`Core::set_direct`] on): [`Core::hw_frame`] says where the last one is.
-    pub fn hw_export(&mut self) -> Option<(u64, Export)> {
-        let gl = self.ctx.gl.as_mut()?;
-        gl.enter();
-        let export = gl.export();
-        gl.leave();
-        export
+    /// A GPU core's frame as a texture of the player's renderer's share group, when its context
+    /// was made in that group ([`share_with_current_context`]): copy it with
+    /// [`copy_shared_frame`] after [`Core::hw_frame`] says a frame is there.
+    pub fn hw_shared(&self) -> Option<SharedFrame> {
+        self.ctx.gl.as_ref()?.shared_frame()
     }
 
     /// Frames left on the GPU (true) or read back each one (false, the default). Only for a
@@ -996,8 +991,12 @@ unsafe extern "C" fn video_callback(data: *const c_void, width: u32, height: u32
             // RETRO_HW_FRAME_BUFFER_VALID: the frame is in the core's framebuffer.
             let origin = c.hw.is_some_and(|hw| hw.bottom_left_origin);
             if c.direct {
-                if let Some(gl) = c.gl.as_ref() {
-                    gl.flush();
+                if let Some(gl) = c.gl.as_mut() {
+                    if gl.shared() {
+                        gl.fence_frame();
+                    } else {
+                        gl.flush();
+                    }
                     c.hw_size = (width, height);
                     c.stale = true;
                     return;

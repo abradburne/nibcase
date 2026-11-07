@@ -18,7 +18,6 @@ use crate::ffi::*;
 use crate::Frame;
 use libloading::Library;
 use std::ffi::{c_char, c_void, CStr};
-use std::os::fd::FromRawFd;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
@@ -31,6 +30,19 @@ static GET_PROC: AtomicPtr<c_void> = AtomicPtr::new(null_mut());
 /// The framebuffer the core draws into, for its `get_current_framebuffer`: asked from any thread
 /// too (PPSSPP asks from its emulation thread).
 static FRAMEBUFFER: AtomicUsize = AtomicUsize::new(0);
+
+/// Make the core's context in the share group of whatever context is current when the core asks
+/// for one (the player's top screen's renderer), rather than on a display of its own.
+static SHARE_WITH_CURRENT: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+/// The core's context made, from now on, in the share group of the context current when the
+/// core asks for one: its colour buffer is then a texture that context can copy from
+/// ([`copy_shared_frame`]), with no buffer exported to the display. For the player, which makes
+/// its top screen's renderer current before loading a game.
+pub fn share_with_current_context(on: bool) {
+    SHARE_WITH_CURRENT.store(on, Ordering::Release);
+}
 
 /// The core's framebuffer (0, the default, before there is one).
 pub(crate) fn current_framebuffer() -> usize {
@@ -71,17 +83,6 @@ const EGL_OPENGL_API: u32 = 0x30A2;
 const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
 const EGL_DRAW: i32 = 0x3059;
 const EGL_READ: i32 = 0x305A;
-
-const EGL_WIDTH: i32 = 0x3057;
-const EGL_HEIGHT: i32 = 0x3056;
-const EGL_GL_TEXTURE_2D: u32 = 0x30B1;
-const EGL_LINUX_DMA_BUF: u32 = 0x3270;
-const EGL_LINUX_DRM_FOURCC_EXT: i32 = 0x3271;
-const EGL_DMA_BUF_PLANE0_FD_EXT: i32 = 0x3272;
-const EGL_DMA_BUF_PLANE0_OFFSET_EXT: i32 = 0x3273;
-const EGL_DMA_BUF_PLANE0_PITCH_EXT: i32 = 0x3274;
-const EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT: i32 = 0x3443;
-const EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT: i32 = 0x3444;
 
 const GL_FRAMEBUFFER: u32 = 0x8D40;
 const GL_RENDERBUFFER: u32 = 0x8D41;
@@ -219,6 +220,7 @@ fns! {
     glPixelStorei: fn(u32, i32);
     glReadPixels: fn(i32, i32, i32, i32, u32, u32, *mut c_void);
     glFlush: fn();
+    glCopyTexSubImage2D: fn(u32, i32, i32, i32, i32, i32, i32, i32);
     }
 }
 
@@ -234,6 +236,7 @@ fns! {
     glFenceSync: fn(u32, u32) -> *mut c_void;
     glClientWaitSync: fn(*mut c_void, u32, u64) -> u32;
     glDeleteSync: fn(*mut c_void);
+    glWaitSync: fn(*mut c_void, u32, u64);
     }
 }
 
@@ -323,12 +326,12 @@ pub(crate) struct Gl {
     buffer_bytes: usize,
     next: usize,
     pending: Option<Pending>,
+    /// Shares a group with the context current when it was made (its display isn't ours to
+    /// terminate), and the fence after the last frame drawn, for that context to wait on.
+    shared: bool,
+    frame_fence: *mut c_void,
     /// With `NIBCASE_DEBUG=gl`: where reading frames back goes, logged every 600 frames.
     timing: Option<Timing>,
-    /// Counts the colour buffer's storage: a new one (the framebuffer grown) is exported again.
-    generation: u64,
-    /// The colour buffer as a dma-buf, for the generation it was made for, and its EGL image.
-    exported: Option<(u64, Export, Egl)>,
     // Kept last: dropped after every function above is done with.
     _gles: Option<Library>,
     _lib: Library,
@@ -347,10 +350,15 @@ impl Gl {
         // handle passed is one EGL returned.
         unsafe {
             let outer = current(&egl);
-            // Mesa's surfaceless platform: the GPU without a window or a display.
+            // In the share group of the context current now (the player's renderer), on its
+            // display; or, for a program with none (nibcase-test), on Mesa's surfaceless
+            // platform: the GPU without a window or a display.
+            let share = SHARE_WITH_CURRENT.load(Ordering::Acquire)
+                && !outer.display.is_null()
+                && !outer.context.is_null();
             let platform = (egl.eglGetProcAddress)(c"eglGetPlatformDisplayEXT".as_ptr());
-            let mut display = null_mut();
-            if !platform.is_null() {
+            let mut display = if share { outer.display } else { null_mut() };
+            if !share && !platform.is_null() {
                 let get: unsafe extern "C" fn(u32, Egl, *const i32) -> Egl =
                     std::mem::transmute(platform);
                 display = get(
@@ -362,7 +370,9 @@ impl Gl {
             if display.is_null() {
                 display = (egl.eglGetDisplay)(null_mut());
             }
-            if display.is_null() || (egl.eglInitialize)(display, null_mut(), null_mut()) == 0 {
+            if display.is_null()
+                || (!share && (egl.eglInitialize)(display, null_mut(), null_mut()) == 0)
+            {
                 return Err(format!("EGL: no display ({:#x})", (egl.eglGetError)()));
             }
             let (api, bit) = if kind.es {
@@ -379,7 +389,9 @@ impl Gl {
             };
             let fail = |what: &str| {
                 let e = (egl.eglGetError)();
-                (egl.eglTerminate)(display);
+                if !share {
+                    (egl.eglTerminate)(display);
+                }
                 format!("EGL: {what} ({e:#x})")
             };
             if (egl.eglBindAPI)(api) == 0 {
@@ -423,8 +435,9 @@ impl Gl {
                 ]);
             }
             context_attributes.push(EGL_NONE);
+            let group = if share { outer.context } else { null_mut() };
             let context =
-                (egl.eglCreateContext)(display, config, null_mut(), context_attributes.as_ptr());
+                (egl.eglCreateContext)(display, config, group, context_attributes.as_ptr());
             if context.is_null() {
                 return Err(fail("no context"));
             }
@@ -438,7 +451,9 @@ impl Gl {
                 Err(e) => {
                     restore(&egl, outer, display);
                     (egl.eglDestroyContext)(display, context);
-                    (egl.eglTerminate)(display);
+                    if !share {
+                        (egl.eglTerminate)(display);
+                    }
                     return Err(format!("GL: {e}"));
                 }
             };
@@ -464,9 +479,14 @@ impl Gl {
                 ..kind
             };
             eprintln!(
-                "nibcase: {} on {}{}",
+                "nibcase: {} on {}{}{}",
                 version,
                 text(GL_RENDERER),
+                if share {
+                    ", sharing the player's renderer's textures"
+                } else {
+                    ""
+                },
                 if pbo.is_some() {
                     ""
                 } else {
@@ -492,8 +512,8 @@ impl Gl {
                 buffer_bytes: 0,
                 next: 0,
                 pending: None,
-                generation: 0,
-                exported: None,
+                shared: share,
+                frame_fence: null_mut(),
                 timing: std::env::var("NIBCASE_DEBUG")
                     .is_ok_and(|d| d.split(',').any(|w| w == "gl"))
                     .then(Timing::default),
@@ -615,7 +635,6 @@ impl Gl {
             }
         }
         self.size = (width, height);
-        self.generation += 1;
         FRAMEBUFFER.store(self.fbo as usize, Ordering::Release);
         Ok(())
     }
@@ -769,204 +788,134 @@ impl Gl {
 }
 
 impl Gl {
-    /// The colour buffer as a dma-buf (EGL_MESA_image_dma_buf_export), for a renderer to draw
-    /// from without a copy; made again when the framebuffer has grown. Current context only.
-    /// `None` when EGL can't export it: frames are then read back.
-    pub fn export(&mut self) -> Option<(u64, Export)> {
-        if self.fbo == 0 {
-            return None;
-        }
-        if let Some((generation, export, _)) = &self.exported {
-            if *generation == self.generation {
-                return Some((*generation, export.clone()));
-            }
-        }
-        self.drop_export();
-        let get = self.egl.eglGetProcAddress;
-        // SAFETY: EGL extension functions by name, called with this context's display and
-        // texture, and with out-parameters of the sizes the extension gives them.
-        unsafe {
-            let create = get(c"eglCreateImageKHR".as_ptr());
-            let query = get(c"eglExportDMABUFImageQueryMESA".as_ptr());
-            let export = get(c"eglExportDMABUFImageMESA".as_ptr());
-            if create.is_null() || query.is_null() || export.is_null() {
-                return None;
-            }
-            let create: unsafe extern "C" fn(Egl, Egl, u32, Egl, *const i32) -> Egl =
-                std::mem::transmute(create);
-            let query: unsafe extern "C" fn(Egl, Egl, *mut i32, *mut i32, *mut u64) -> u32 =
-                std::mem::transmute(query);
-            let export: unsafe extern "C" fn(Egl, Egl, *mut i32, *mut i32, *mut i32) -> u32 =
-                std::mem::transmute(export);
-            (self.gl.glFlush)();
-            let image = create(
-                self.display,
-                self.context,
-                EGL_GL_TEXTURE_2D,
-                self.color as usize as Egl,
-                [EGL_NONE].as_ptr(),
-            );
-            if image.is_null() {
-                return None;
-            }
-            let (mut fourcc, mut planes, mut modifier) = (0, 0, 0u64);
-            let (mut fd, mut stride, mut offset) = ([-1i32; 4], [0i32; 4], [0i32; 4]);
-            if query(self.display, image, &mut fourcc, &mut planes, &mut modifier) == 0
-                || planes != 1
-                || export(
-                    self.display,
-                    image,
-                    fd.as_mut_ptr(),
-                    stride.as_mut_ptr(),
-                    offset.as_mut_ptr(),
-                ) == 0
-                || fd[0] < 0
-            {
-                destroy_image(&self.egl, self.display, image);
-                return None;
-            }
-            let out = Export {
-                fd: std::sync::Arc::new(std::os::fd::OwnedFd::from_raw_fd(fd[0])),
-                fourcc,
-                modifier,
-                stride: stride[0],
-                offset: offset[0],
-                width: self.size.0,
-                height: self.size.1,
-            };
-            self.exported = Some((self.generation, out.clone(), image));
-            Some((self.generation, out))
-        }
-    }
-
-    fn drop_export(&mut self) {
-        if let Some((_, _, image)) = self.exported.take() {
-            destroy_image(&self.egl, self.display, image);
-        }
-    }
-
-    /// The core's commands sent to the GPU, for a renderer drawing from the dma-buf (the
-    /// kernel orders the two by the buffer's fences).
+    /// The core's commands sent to the GPU.
     pub fn flush(&self) {
         // SAFETY: the current context's flush.
         unsafe { (self.gl.glFlush)() };
     }
+
+    /// Whether the context shares a group with the player's renderer.
+    pub fn shared(&self) -> bool {
+        self.shared
+    }
+
+    /// After a frame, in a shared context: a fence for the renderer's context to wait on before
+    /// copying the frame, the one before deleted; then the commands sent. Current context only.
+    pub fn fence_frame(&mut self) {
+        if let Some(p) = &self.pbo {
+            // SAFETY: fences of this share group, made and deleted on its current context.
+            unsafe {
+                if !self.frame_fence.is_null() {
+                    (p.glDeleteSync)(self.frame_fence);
+                }
+                self.frame_fence = (p.glFenceSync)(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
+            }
+        }
+        self.flush();
+    }
+
+    /// The colour buffer's texture (a name in the share group), its size, and the fence after
+    /// the last frame (null before the first).
+    pub fn shared_frame(&self) -> Option<SharedFrame> {
+        (self.shared && self.color != 0).then_some(SharedFrame {
+            texture: self.color,
+            size: self.size,
+            fence: self.frame_fence,
+        })
+    }
 }
 
-/// The core's colour buffer shared as a dma-buf: one plane, RGBA8 in whatever layout the GPU keeps
-/// it (`modifier`), `width` x `height` (the framebuffer's, larger than a frame may be). The frame
-/// is at its corner the GL way up: row 0 is the frame's bottom.
-#[derive(Clone, Debug)]
-pub struct Export {
-    pub fd: std::sync::Arc<std::os::fd::OwnedFd>,
-    pub fourcc: i32,
-    pub modifier: u64,
-    pub stride: i32,
-    pub offset: i32,
-    pub width: u32,
-    pub height: u32,
+/// A shared context's frame: its colour buffer's texture, the buffer's size (the frame at its
+/// corner the GL way up), and the fence to wait on before reading it.
+#[derive(Clone, Copy, Debug)]
+pub struct SharedFrame {
+    pub texture: u32,
+    pub size: (u32, u32),
+    pub fence: *mut c_void,
 }
 
-/// An [`Export`] made the storage of a texture in another context (SDL's renderer's), so that
-/// drawing the texture draws the core's frame. Dropped, the image goes; the texture keeps what
-/// was last there until it is given new storage.
-pub struct Imported {
-    image: Egl,
-    display: Egl,
-    egl: EglFns,
+/// The functions [`copy_shared_frame`] calls, loaded once (eglGetProcAddress's are the same in
+/// every context).
+struct CopyFns {
+    gl: Fns,
+    sync: Async,
     _lib: Library,
 }
 
-impl Imported {
-    /// The export made the storage of the texture bound to `GL_TEXTURE_2D` in the current
-    /// context (an EGL one: SDL's renderer on KMS).
-    pub fn into_bound_texture(export: &Export) -> Result<Imported, String> {
-        use std::os::fd::AsRawFd;
-        let (lib, egl) = load_egl()?;
-        // SAFETY: EGL and OES_EGL_image calls on the current context and its display, with
-        // the attribute list the dma-buf import extension gives.
-        unsafe {
-            let display = (egl.eglGetCurrentDisplay)();
-            if display.is_null() {
-                return Err("no EGL display is current".into());
-            }
-            let create = (egl.eglGetProcAddress)(c"eglCreateImageKHR".as_ptr());
-            let target = (egl.eglGetProcAddress)(c"glEGLImageTargetTexture2DOES".as_ptr());
-            if create.is_null() || target.is_null() {
-                return Err("no EGL image import".into());
-            }
-            let create: unsafe extern "C" fn(Egl, Egl, u32, Egl, *const i32) -> Egl =
-                std::mem::transmute(create);
-            let target: unsafe extern "C" fn(u32, Egl) = std::mem::transmute(target);
-            let attributes = [
-                EGL_WIDTH,
-                export.width as i32,
-                EGL_HEIGHT,
-                export.height as i32,
-                EGL_LINUX_DRM_FOURCC_EXT,
-                export.fourcc,
-                EGL_DMA_BUF_PLANE0_FD_EXT,
-                export.fd.as_raw_fd(),
-                EGL_DMA_BUF_PLANE0_OFFSET_EXT,
-                export.offset,
-                EGL_DMA_BUF_PLANE0_PITCH_EXT,
-                export.stride,
-                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
-                export.modifier as u32 as i32,
-                EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
-                (export.modifier >> 32) as u32 as i32,
-                EGL_NONE,
-            ];
-            let image = create(
-                display,
-                null_mut(),
-                EGL_LINUX_DMA_BUF,
-                null_mut(),
-                attributes.as_ptr(),
-            );
-            if image.is_null() {
-                return Err(format!(
-                    "the frame's dma-buf won't import ({:#x})",
-                    (egl.eglGetError)()
-                ));
-            }
-            target(GL_TEXTURE_2D, image);
-            Ok(Imported {
-                image,
-                display,
-                egl,
-                _lib: lib,
-            })
-        }
-    }
-}
+static COPY_FNS: std::sync::OnceLock<Option<CopyFns>> = std::sync::OnceLock::new();
 
-impl Drop for Imported {
-    fn drop(&mut self) {
-        destroy_image(&self.egl, self.display, self.image);
-    }
-}
+/// The renderer's framebuffer for reading a shared frame: one, made on its context.
+static COPY_FBO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-fn destroy_image(egl: &EglFns, display: Egl, image: Egl) {
-    // SAFETY: an image EGL made on `display`, destroyed once.
+const GL_COLOR_ATTACHMENT0_READ: u32 = GL_COLOR_ATTACHMENT0;
+const GL_TIMEOUT_IGNORED: u64 = u64::MAX;
+
+/// `frame`, `width` x `height` at its corner, copied into the texture bound to `GL_TEXTURE_2D` in
+/// the current context (the player's renderer's, in the core's share group), after waiting on
+/// the GPU for its fence: a copy on the GPU, rows as they are (the frame's bottom first).
+pub fn copy_shared_frame(frame: &SharedFrame, width: u32, height: u32) -> Result<(), String> {
+    let fns = COPY_FNS
+        .get_or_init(|| {
+            let (lib, egl) = load_egl().ok()?;
+            // SAFETY: GL functions by name from EGL, valid in any context.
+            unsafe {
+                Some(CopyFns {
+                    gl: Fns::load(egl.eglGetProcAddress).ok()?,
+                    sync: Async::load(egl.eglGetProcAddress).ok()?,
+                    _lib: lib,
+                })
+            }
+        })
+        .as_ref()
+        .ok_or("no GL functions for copying the frame")?;
+    let (gl, sync) = (&fns.gl, &fns.sync);
+    // SAFETY: GL calls on the current context; the texture and fence are of its share group.
     unsafe {
-        let destroy = (egl.eglGetProcAddress)(c"eglDestroyImageKHR".as_ptr());
-        if !destroy.is_null() {
-            let destroy: unsafe extern "C" fn(Egl, Egl) -> u32 = std::mem::transmute(destroy);
-            destroy(display, image);
+        if !frame.fence.is_null() {
+            (sync.glWaitSync)(frame.fence, 0, GL_TIMEOUT_IGNORED);
+        }
+        let mut fbo = COPY_FBO.load(Ordering::Relaxed);
+        if fbo == 0 {
+            (gl.glGenFramebuffers)(1, &mut fbo);
+            COPY_FBO.store(fbo, Ordering::Relaxed);
+        }
+        let mut bound = 0;
+        (gl.glGetIntegerv)(GL_FRAMEBUFFER_BINDING, &mut bound);
+        (gl.glBindFramebuffer)(GL_FRAMEBUFFER, fbo);
+        (gl.glFramebufferTexture2D)(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0_READ,
+            GL_TEXTURE_2D,
+            frame.texture,
+            0,
+        );
+        let status = (gl.glCheckFramebufferStatus)(GL_FRAMEBUFFER);
+        if status == GL_FRAMEBUFFER_COMPLETE {
+            (gl.glCopyTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width as i32, height as i32);
+        }
+        (gl.glBindFramebuffer)(GL_FRAMEBUFFER, bound as u32);
+        if status != GL_FRAMEBUFFER_COMPLETE {
+            return Err(format!("the shared frame can't be read ({status:#x})"));
+        }
+        let error = (gl.glGetError)();
+        if error != 0 {
+            return Err(format!("copying the shared frame: GL error {error:#x}"));
         }
     }
+    Ok(())
 }
 
 impl Drop for Gl {
     fn drop(&mut self) {
         self.enter();
-        self.drop_export();
         // SAFETY: names this context made, deleted on it; then the context itself.
         unsafe {
             if let Some(p) = &self.pbo {
                 if let Some(old) = self.pending.take() {
                     (p.glDeleteSync)(old.fence);
+                }
+                if !self.frame_fence.is_null() {
+                    (p.glDeleteSync)(self.frame_fence);
                 }
                 if self.buffers[0] != 0 {
                     (p.glDeleteBuffers)(2, self.buffers.as_ptr());
@@ -986,7 +935,10 @@ impl Drop for Gl {
         // SAFETY: the context is no longer current on this thread.
         unsafe {
             (self.egl.eglDestroyContext)(self.display, self.context);
-            (self.egl.eglTerminate)(self.display);
+            // A shared context's display is the player's renderer's.
+            if !self.shared {
+                (self.egl.eglTerminate)(self.display);
+            }
         }
     }
 }

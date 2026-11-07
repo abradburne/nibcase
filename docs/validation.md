@@ -398,3 +398,20 @@ on the GPU instead:
 Screenshots with and without match (LocoRoco exactly, the others within 0.16 % RMSE, a frame's
 timing). Later in the same race, past frame 1200 without input, a block cost 21 ms: not yet looked
 into.
+
+**The display controller and the dma-buf (2026-11-07).** Importing the core's exported colour
+buffer into SDL's display (KMS, card0) made the Rockchip display driver map it too:
+`rockchip_gem_iommu_map: failed to map buffer: size=0` at every launch, harmless at first; after
+about 80 launches `rockchip_gem_prime_import_sg_table: failed to import sg table: -12` and every
+GPU game's frame was white until a reboot. The core's context is now made in the top renderer's
+share group and its frames copied on the GPU: no buffer is imported, no error is logged. On the
+panel the picture is right (looked at); a `--screenshot` of the player in this mode comes out
+white, which isn't understood yet; `nibcase-test --bench --frame` reads frames back correctly.
+
+**Mesa: the index bounds (nibOS's Mesa, `rootfs/mesa/0001-...patch`).** Profiled with an
+unstripped build of nibOS's Mesa, the race's hottest function was Panfrost's fallback for a draw's
+index bounds, `u_vbuf_get_minmax_index_mapped` (9 % of all samples): PPSSPP streams new indices
+every frame, so Panfrost's bounds cache misses, and the scan reads them one at a time from a
+write-combined mapping. The patch copies the draw's indices out with one memcpy and scans the
+copy. From the race's resume state, three runs each, frames 600-1200: 15.1, 14.4, 15.0 ms without
+it; 12.3, 12.4, 12.5 ms with it, every frame then on the panel's refresh (16.68 ms).

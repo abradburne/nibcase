@@ -222,6 +222,12 @@ fn run() -> Result<(), String> {
             .collect();
     }
     prefs.apply(&mut core, true)?;
+    // A GPU core's context in the top screen's renderer's share group: its frames are copied
+    // on the GPU into the screen's texture (not with SDL's dummy driver, which has no GL).
+    if let Some(s) = screens.as_mut().filter(|s| s.gpu()) {
+        s.top_gl_current()?;
+        nibcase_libretro::share_with_current_context(true);
+    }
     core.load_game(rom)?;
     prefs.apply(&mut core, false)?;
     plug_pad(&mut core, &prefs);
@@ -1055,12 +1061,11 @@ fn player(
         // software core) the frame, read back.
         let mut drawn = false;
         if gpu {
-            match (core.hw_frame(), core.hw_export()) {
+            match (core.hw_frame(), core.hw_shared()) {
                 (None, _) => {}
-                (Some(size), Some((generation, export))) => {
+                (Some(size), Some(frame)) => {
                     match s.play_hw(
-                        generation,
-                        &export,
+                        &frame,
                         size,
                         av.geometry.aspect_ratio,
                         prefs.text("scale") == "fit",
@@ -1074,7 +1079,9 @@ fn player(
                     }
                 }
                 (Some(_), None) => {
-                    eprintln!("nibcase: the core's frames can't be exported; reading them back");
+                    eprintln!(
+                        "nibcase: the core's context doesn't share the screen's; reading frames back"
+                    );
                     gpu = false;
                 }
             }

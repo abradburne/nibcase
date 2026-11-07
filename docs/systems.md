@@ -163,9 +163,12 @@ different conversion of a unit is drawn whole, never cut wrongly.
 - **The GPU:** the only core that draws with it. nibcase makes it an OpenGL ES 3 context through EGL
   with no window (Mesa's surfaceless platform), current only while the core runs, and a framebuffer
   as large as the core's largest frame (it grows with the Rendering Resolution). The player draws
-  the frames from the GPU: the framebuffer's colour buffer is exported as a dma-buf and imported
-  as the top panel's texture, so a frame is never copied; it is read back only for a picture of it
-  (the pause screen, a state's thumbnail). Where that can't be done (SDL's dummy driver,
+  the frames from the GPU: the core's context is made in the share group of the top panel's
+  renderer's, and each frame is copied on the GPU (glCopyTexSubImage2D, after a fence) into the
+  panel's texture; it is read back only for a picture of it (the pause screen, a state's
+  thumbnail). (A dma-buf exported to SDL's display, as first done, made the display controller's
+  driver map every frame's buffer and fail to; after many launches every import failed and the
+  games drew white until a reboot.) Where that can't be done (SDL's dummy driver,
   `nibcase-test`), every frame is read back through two pixel-pack buffers, a frame late; on
   Panfrost that costs about 10 ms a frame at 1x and 38 ms at 2x.
 - **Rendering Resolution:** 1x by default. 2x (960 x 544) is shown at the same size, sharper, and
