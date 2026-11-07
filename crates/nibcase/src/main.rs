@@ -320,7 +320,7 @@ fn run() -> Result<(), String> {
     }
     result.and(ram).and(state).and(flush)
 }
-/// Over the last 600 frames: the core's time a frame (running it, RetroAchievements, the
+/// Over the last two seconds' frames: the core's time a frame (running it, RetroAchievements, the
 /// sound), its mean and worst, and the whole frame's work with drawing and presenting (which
 /// waits for the panel's refresh, so it is about a refresh even when the core is quick).
 #[derive(Default)]
@@ -329,20 +329,28 @@ struct FrameTiming {
     core: Duration,
     worst: Duration,
     whole: Duration,
+    /// Frames whose core time was over a refresh (16.7 ms).
+    over: u32,
 }
+/// Frames a line of the log covers: two seconds.
+const TIMING_FRAMES: u32 = 120;
 impl FrameTiming {
     fn frame(&mut self, core: Duration, whole: Duration) {
         self.frames += 1;
         self.core += core;
         self.worst = self.worst.max(core);
         self.whole += whole;
-        if self.frames == 600 {
+        self.over += u32::from(core > Duration::from_micros(16_700));
+        if self.frames == TIMING_FRAMES {
             let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+            let n = f64::from(TIMING_FRAMES);
             eprintln!(
-                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst; the whole frame {:.2}",
-                ms(self.core) / 600.0,
+                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; the whole frame {:.2}",
+                ms(self.core) / n,
                 ms(self.worst),
-                ms(self.whole) / 600.0
+                self.over,
+                TIMING_FRAMES,
+                ms(self.whole) / n
             );
             *self = FrameTiming::default();
         }
@@ -726,6 +734,7 @@ fn player(
     let mut timing = debug("frames").then(FrameTiming::default);
     let mut woke = Instant::now();
     let mut gpu = core.hardware_rendered() && s.gpu();
+    let mut gpu_failures = 0u32;
     core.set_direct(gpu);
     let mut pad = prefs.text("pad");
     // The DS+'s buttons laid out as the system's own pad (layout.rs), from the names the core
@@ -1071,10 +1080,23 @@ fn player(
                         prefs.text("scale") == "fit",
                         prefs.text("aspect") == "tv",
                     ) {
-                        Ok(()) => drawn = true,
+                        Ok(()) => {
+                            drawn = true;
+                            gpu_failures = 0;
+                        }
+                        // One frame that couldn't be copied is shown read back; frames go on
+                        // being read back only after several in a row.
                         Err(e) => {
-                            eprintln!("nibcase: drawing from the GPU: {e}; reading frames back");
-                            gpu = false;
+                            gpu_failures += 1;
+                            if gpu_failures >= 10 {
+                                eprintln!(
+                                    "nibcase: drawing from the GPU: {e}, {gpu_failures} times; reading frames back"
+                                );
+                                gpu = false;
+                            } else {
+                                eprintln!("nibcase: drawing from the GPU: {e}");
+                                core.refresh_frame();
+                            }
                         }
                     }
                 }

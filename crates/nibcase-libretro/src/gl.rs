@@ -869,8 +869,16 @@ pub fn copy_shared_frame(frame: &SharedFrame, width: u32, height: u32) -> Result
         .as_ref()
         .ok_or("no GL functions for copying the frame")?;
     let (gl, sync) = (&fns.gl, &fns.sync);
+    // Within the buffer: a frame the core says is larger is cut to it.
+    let (width, height) = (width.min(frame.size.0), height.min(frame.size.1));
     // SAFETY: GL calls on the current context; the texture and fence are of its share group.
     unsafe {
+        // Errors left by the renderer's own calls (SDL doesn't read them) aren't the copy's.
+        for _ in 0..16 {
+            if (gl.glGetError)() == 0 {
+                break;
+            }
+        }
         if !frame.fence.is_null() {
             (sync.glWaitSync)(frame.fence, 0, GL_TIMEOUT_IGNORED);
         }
@@ -899,7 +907,10 @@ pub fn copy_shared_frame(frame: &SharedFrame, width: u32, height: u32) -> Result
         }
         let error = (gl.glGetError)();
         if error != 0 {
-            return Err(format!("copying the shared frame: GL error {error:#x}"));
+            return Err(format!(
+                "copying the shared frame ({width} x {height} of {} x {}): GL error {error:#x}",
+                frame.size.0, frame.size.1
+            ));
         }
     }
     Ok(())
