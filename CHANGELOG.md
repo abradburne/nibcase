@@ -12,7 +12,12 @@
   core's own through EGL with no window, made when the core asks and current only while it runs
   (SDL's is put back after every call), a framebuffer that grows with the core's frames, and the
   frames read back through two pixel-pack buffers into the usual frame, a frame late. EGL and GL
-  are loaded only when a core asks. `GET_PREFERRED_HW_RENDER` answers OpenGL ES 3;
+  are loaded only when a core asks. The player draws a GPU core's frames from the GPU: its colour
+  buffer exported as a dma-buf (`Core::hw_export`) and imported as the top panel's texture
+  (`Imported`), no frame copied; a frame is read back only for a picture (`Core::refresh_frame`).
+  On Panfrost reading every frame back cost 10 ms at 1x. `NIBCASE_DEBUG=gl` logs the readback's
+  parts, `NIBCASE_DEBUG=frames` the core's time a frame; the loop's error is said before the core
+  is torn down. `GET_PREFERRED_HW_RENDER` answers OpenGL ES 3;
   `SET_HW_SHARED_CONTEXT` is accepted.
 - **Handheld defaults and hidden options** per core (`HANDHELD_DEFAULTS`, `HIDDEN_OPTIONS` in
   `systems.rs`): a default that isn't the core's is the default everywhere (the menu, Y, DSlot's

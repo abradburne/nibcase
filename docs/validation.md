@@ -17,7 +17,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | Disk System | — | registered, BIOS check tested | gameplay (no free homebrew found) |
 | SG-1000 | — | registered | gameplay (no free homebrew found) |
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
-| PSP | test programs and owned CSOs, in an aarch64 VM on Mesa's llvmpipe | not yet | everything on the DS+: the cost per frame on Panfrost, the defaults, a game's placard |
+| PSP | owned games (CSO, ISO) | 1x: 4-6 ms for Ridge Racer 2, Burnout Dominator, LocoRoco; God of War's title 18-30 ms | gameplay past the menus, a game's placard |
 
 ## The first SNES release, 2026-10-20
 
@@ -333,3 +333,35 @@ with the PSP-1000 model is 40 MB (41,950,384 bytes), under the 64 MiB kept.
 
 Booting takes the core's loader thread a moment: a bench of 60 frames ends before the program
 starts (p50 0.04 ms); use thousands of frames.
+
+### On the DS+ (2026-11-07)
+
+An older dev card (DSlot 0.3.1 under it) with DSlot 0.5.0, nibcase and the core installed; Mesa
+26.2.4 (nibOS's), OpenGL ES 3.1 on the Mali-G52 (Panfrost). Games read in place from the second
+card. Costs are the player's (`NIBCASE_DEBUG=frames`): the core's time a frame, run as DSlot runs
+it on KMS, over frames 600-1200 or 1800-2400, without input (menus, intros and the title screens).
+
+**Reading frames back was the cost.** Through the pixel-pack buffers (`nibcase-test --bench`) every
+frame cost at least 11 ms at 1x and 39 ms at 2x, a flag menu too. `NIBCASE_DEBUG=gl` split it:
+reading back 10.1 ms of the 11.3 (glReadPixels into the buffer 6.1, the mapped buffer's copy 3.9;
+waiting for the GPU 0.02), at 2x 38.4 of 39.7. Turning Panfrost's AFBC off (`PAN_MESA_DEBUG=noafbc`)
+made it worse (24 and 91 ms). Drawing from the exported dma-buf (Panfrost's AFBC modifier
+`0x800000000000351`) removed it:
+
+| Game (screen) | 1x | 2x |
+|---|---|---|
+| Ridge Racer 2 (its Rally-X intro) | 4.4 ms | 4.5 ms |
+| Burnout Dominator | 4.5 ms | 4.9 ms |
+| LocoRoco (language menu) | 6.2 ms | 3.8 ms |
+| God of War: Chains of Olympus (title) | 18-30 ms | 32-55 ms |
+
+**God of War's options**, each against the defaults at 1x: only Skip Buffer Effects changes its cost
+(18.5 to 2.3 ms: the game is bound by drawing its effects into textures), and it breaks effects,
+so it stays the player's choice per game. Anisotropic filtering off, spline quality Low,
+duplicate frames off, lazy texture caching and lower resolution for effects are within 1 ms;
+software skinning off is slower (27 ms). The defaults stay the core's but for the backend and the
+PSP-1000. The SoC stayed under 57 °C, charging from 9 %.
+
+The first 600 frames hold the game's load (a frame up to 340 ms): a core torn down then, while
+its loader thread runs (the player failing at start: no sound device, run without DSlot's
+environment), crashes PPSSPP; the player now says why it stopped before tearing it down.

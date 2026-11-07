@@ -275,6 +275,10 @@ fn run() -> Result<(), String> {
             &stop,
         )
     };
+    // Said now: tearing a core down can fail too (PPSSPP while still loading a game).
+    if let Err(e) = &result {
+        eprintln!("nibcase: {e}");
+    }
     let ram = saves.battery(&mut core, true);
     let state = if !core.has_states() {
         Ok(())
@@ -290,6 +294,34 @@ fn run() -> Result<(), String> {
         eprintln!("nibcase: saving: {error}");
     }
     result.and(ram).and(state).and(flush)
+}
+/// Over the last 600 frames: the core's time a frame (running it, RetroAchievements, the
+/// sound), its mean and worst, and the whole frame's work with drawing and presenting (which
+/// waits for the panel's refresh, so it is about a refresh even when the core is quick).
+#[derive(Default)]
+struct FrameTiming {
+    frames: u32,
+    core: Duration,
+    worst: Duration,
+    whole: Duration,
+}
+impl FrameTiming {
+    fn frame(&mut self, core: Duration, whole: Duration) {
+        self.frames += 1;
+        self.core += core;
+        self.worst = self.worst.max(core);
+        self.whole += whole;
+        if self.frames == 600 {
+            let ms = |d: Duration| d.as_secs_f64() * 1000.0;
+            eprintln!(
+                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst; the whole frame {:.2}",
+                ms(self.core) / 600.0,
+                ms(self.worst),
+                ms(self.whole) / 600.0
+            );
+            *self = FrameTiming::default();
+        }
+    }
 }
 /// Whether `NIBCASE_DEBUG` (words separated by commas) has `word`: `cheevos` logs every
 /// request to RetroAchievements, rcheevos' own messages and how it maps the console's memory.
@@ -658,6 +690,13 @@ fn player(
     // measured once for a frame of that size.
     let mut bright = nibcase_libretro::Frame::default();
     let mut gains: Option<((u32, u32), Vec<f32>)> = None;
+    // A GPU core's frames stay on the GPU and are drawn from there (not with SDL's dummy
+    // driver, which has no GL); read back only for pictures of them.
+    // With NIBCASE_DEBUG=frames: what each frame's work costs, logged every 600 frames.
+    let mut timing = debug("frames").then(FrameTiming::default);
+    let mut woke = Instant::now();
+    let mut gpu = core.hardware_rendered() && s.gpu();
+    core.set_direct(gpu);
     let mut pad = prefs.text("pad");
     // The DS+'s buttons laid out as the system's own pad (layout.rs), from the names the core
     // gives its buttons; made again whenever it gives others (a pad plugged in, a game loaded).
@@ -893,6 +932,7 @@ fn player(
                 if let (Some(path), true) = (&args.shot, shoot) {
                     s.capture_next(path.clone());
                 }
+                core.refresh_frame();
                 s.pause(&model, &menu::status(), core.frame(), &prefs.name)?;
                 menu_at = Instant::now();
                 dirty = false;
@@ -914,6 +954,7 @@ fn player(
             eprintln!("nibcase: buttons: {}", buttons.said);
             described = Some(now);
         }
+        let running = Instant::now();
         let mut samples = Vec::new();
         for _ in 0..factor {
             let pad = input.buttons(prefs.enabled("stick"));
@@ -980,60 +1021,94 @@ fn player(
                 _ => {}
             }
         }
-        let mut frame = core.frame();
-        let two = screen_only
-            .then(|| unit::screens(&prefs.name, (frame.width, frame.height)))
-            .flatten();
-        // The LCDs to brighten: the two cut out, or the whole frame once the core has zoomed
-        // (its frame then no longer has the whole unit's size).
-        let size = (frame.width, frame.height);
-        let lcds: Vec<unit::Rect> = match two {
-            Some((a, b)) => vec![a.src, b.src],
-            None if zoomed.is_some() && unit::zoom(&prefs.name, size).is_none() => {
-                vec![(0, 0, frame.width, frame.height)]
-            }
-            None => Vec::new(),
-        };
-        if screen_only && prefs.text("lcd") == "bright" && !lcds.is_empty() && frame.width > 0 {
-            if gains.as_ref().is_none_or(|(at, _)| *at != size) {
-                let g = lcds
-                    .iter()
-                    .map(|r| unit::lcd_gain(&frame.rgba, frame.width, *r))
-                    .collect();
-                gains = Some((size, g));
-            }
-            bright.width = frame.width;
-            bright.height = frame.height;
-            bright.rgba.clear();
-            bright.rgba.extend_from_slice(&frame.rgba);
-            for (r, g) in lcds.iter().zip(&gains.as_ref().unwrap().1) {
-                unit::brighten(&mut bright.rgba, bright.width, *r, *g);
-            }
-            frame = &bright;
-        }
-        if let Some((top, bottom)) = two {
-            s.play_split(frame, top, bottom)?;
-        } else if let Some(f) = fold(frame) {
-            let (lid, body) = unit::split(frame.width, frame.height, f);
-            s.play_split(frame, lid, body)?;
-        } else {
-            if watch {
-                // Redrawn only when a button's state changes.
-                let ready = unit::buttons(keys.ordered())
-                    .iter()
-                    .map(|(k, _, _)| keys.ready(*k))
-                    .collect();
-                if card.as_ref() != Some(&ready) {
-                    s.set_card(Some(&unit::card(&prefs.name, &keys)))?;
-                    card = Some(ready);
+        let ran = running.elapsed();
+        // A GPU core's frame drawn from the GPU where it can be; otherwise (and for every
+        // software core) the frame, read back.
+        let mut drawn = false;
+        if gpu {
+            match (core.hw_frame(), core.hw_export()) {
+                (None, _) => {}
+                (Some(size), Some((generation, export))) => {
+                    match s.play_hw(
+                        generation,
+                        &export,
+                        size,
+                        av.geometry.aspect_ratio,
+                        prefs.text("scale") == "fit",
+                        prefs.text("aspect") == "tv",
+                    ) {
+                        Ok(()) => drawn = true,
+                        Err(e) => {
+                            eprintln!("nibcase: drawing from the GPU: {e}; reading frames back");
+                            gpu = false;
+                        }
+                    }
+                }
+                (Some(_), None) => {
+                    eprintln!("nibcase: the core's frames can't be exported; reading them back");
+                    gpu = false;
                 }
             }
-            s.play(
-                frame,
-                av.geometry.aspect_ratio,
-                prefs.text("scale") == "fit",
-                prefs.text("aspect") == "tv",
-            )?;
+            if !gpu {
+                core.set_direct(false);
+            }
+        }
+        if !drawn {
+            let mut frame = core.frame();
+            let two = screen_only
+                .then(|| unit::screens(&prefs.name, (frame.width, frame.height)))
+                .flatten();
+            // The LCDs to brighten: the two cut out, or the whole frame once the core has zoomed
+            // (its frame then no longer has the whole unit's size).
+            let size = (frame.width, frame.height);
+            let lcds: Vec<unit::Rect> = match two {
+                Some((a, b)) => vec![a.src, b.src],
+                None if zoomed.is_some() && unit::zoom(&prefs.name, size).is_none() => {
+                    vec![(0, 0, frame.width, frame.height)]
+                }
+                None => Vec::new(),
+            };
+            if screen_only && prefs.text("lcd") == "bright" && !lcds.is_empty() && frame.width > 0 {
+                if gains.as_ref().is_none_or(|(at, _)| *at != size) {
+                    let g = lcds
+                        .iter()
+                        .map(|r| unit::lcd_gain(&frame.rgba, frame.width, *r))
+                        .collect();
+                    gains = Some((size, g));
+                }
+                bright.width = frame.width;
+                bright.height = frame.height;
+                bright.rgba.clear();
+                bright.rgba.extend_from_slice(&frame.rgba);
+                for (r, g) in lcds.iter().zip(&gains.as_ref().unwrap().1) {
+                    unit::brighten(&mut bright.rgba, bright.width, *r, *g);
+                }
+                frame = &bright;
+            }
+            if let Some((top, bottom)) = two {
+                s.play_split(frame, top, bottom)?;
+            } else if let Some(f) = fold(frame) {
+                let (lid, body) = unit::split(frame.width, frame.height, f);
+                s.play_split(frame, lid, body)?;
+            } else {
+                if watch {
+                    // Redrawn only when a button's state changes.
+                    let ready = unit::buttons(keys.ordered())
+                        .iter()
+                        .map(|(k, _, _)| keys.ready(*k))
+                        .collect();
+                    if card.as_ref() != Some(&ready) {
+                        s.set_card(Some(&unit::card(&prefs.name, &keys)))?;
+                        card = Some(ready);
+                    }
+                }
+                s.play(
+                    frame,
+                    av.geometry.aspect_ratio,
+                    prefs.text("scale") == "fit",
+                    prefs.text("aspect") == "tv",
+                )?;
+            }
         }
         for message in core.messages() {
             eprintln!("nibcase: {message}");
@@ -1051,11 +1126,15 @@ fn player(
         let period = Duration::from_secs_f64(1.0 / rate);
         next += period;
         let after = Instant::now();
+        if let Some(t) = timing.as_mut() {
+            t.frame(ran, after - woke);
+        }
         if next > after {
             std::thread::sleep(next - after);
         } else if after.duration_since(next) > period * 2 {
             next = after;
         }
+        woke = Instant::now();
     }
     model.settled();
     Ok(())

@@ -1,6 +1,6 @@
 //! SDL owns both panels throughout play. Textures and menu rasters are reused across frames.
 use crate::unit::Part;
-use nibcase_libretro::Frame;
+use nibcase_libretro::{Export, Frame, Imported};
 use nibkit::menu::indicators::Indicators;
 use nibkit::menu::raster::{Canvas as Raster, Fonts};
 use nibkit::menu::toast;
@@ -57,6 +57,16 @@ pub struct Screens {
     /// Over the game: the toast on show, bottom right, and the indicators, bottom left.
     toast: Overlay,
     indicators: Overlay,
+    /// A GPU core's colour buffer, imported as a texture of the top panel's renderer: drawn
+    /// from with no copy (`play_hw`).
+    hw: Option<Hw>,
+}
+/// A texture whose storage is a GPU core's exported colour buffer, for the export's
+/// generation.
+struct Hw {
+    texture: Texture,
+    _image: Imported,
+    generation: u64,
 }
 fn upload(
     creator: &TextureCreator<WindowContext>,
@@ -279,6 +289,7 @@ impl Screens {
             smooth: false,
             toast: Overlay::default(),
             indicators: Overlay::default(),
+            hw: None,
         })
     }
     pub fn set_sync(&mut self, on: bool) {
@@ -375,6 +386,92 @@ impl Screens {
         c.set_draw_color(Color::BLACK);
         c.fill_rect(native(v.rect))?;
         c.copy(&self.game.as_ref().unwrap().texture, None, dst)?;
+        self.finish_top()
+    }
+    /// Whether frames can be drawn from the GPU: not with SDL's dummy driver.
+    pub fn gpu(&self) -> bool {
+        !self.dummy
+    }
+    /// A GPU core's frame, `size` at the corner of the colour buffer it exported (the GL way
+    /// up), drawn on the top panel as `play` draws a frame, without copying it: the export is
+    /// imported as a texture once for each generation.
+    pub fn play_hw(
+        &mut self,
+        generation: u64,
+        export: &Export,
+        size: (u32, u32),
+        aspect: f32,
+        fit: bool,
+        tv: bool,
+    ) -> Result<(), String> {
+        if self.hw.as_ref().is_none_or(|h| h.generation != generation) {
+            if let Some(old) = self.hw.take() {
+                // SAFETY: uniquely owned; its renderer is alive on this thread.
+                unsafe { old.texture.destroy() };
+            }
+            let mut texture = self.creators[self.top.canvas]
+                .create_texture_static(PixelFormatEnum::RGBA32, export.width, export.height)
+                .map_err(|e| e.to_string())?;
+            texture.set_blend_mode(BlendMode::None);
+            // SAFETY: binds the renderer's own texture in its context, current from here to
+            // the unbind; the import gives it new storage there.
+            let imported = unsafe {
+                texture.gl_bind_texture();
+                let imported = Imported::into_bound_texture(export);
+                texture.gl_unbind_texture();
+                imported
+            };
+            let image = match imported {
+                Ok(image) => image,
+                Err(e) => {
+                    // SAFETY: as above.
+                    unsafe { texture.destroy() };
+                    return Err(e);
+                }
+            };
+            eprintln!(
+                "nibcase: drawing frames from the GPU ({} x {} dma-buf, modifier {:#x})",
+                export.width, export.height, export.modifier
+            );
+            self.hw = Some(Hw {
+                texture,
+                _image: image,
+                generation,
+            });
+        }
+        let hw = self.hw.as_mut().unwrap();
+        hw.texture.set_scale_mode(if self.smooth {
+            ScaleMode::Linear
+        } else {
+            ScaleMode::Nearest
+        });
+        let shape = Frame {
+            width: size.0,
+            height: size.1,
+            rgba: Vec::new(),
+        };
+        let v = self.top;
+        let dst = on(v, destination(&shape, aspect, fit, tv));
+        let c = &mut self.canvases[v.canvas];
+        c.set_clip_rect(Some(native(v.rect)));
+        c.set_draw_color(Color::BLACK);
+        c.fill_rect(native(v.rect))?;
+        // The frame's bottom row is the buffer's first: drawn turned the right way up.
+        c.copy_ex(
+            &hw.texture,
+            Rect::new(0, 0, size.0, size.1),
+            dst,
+            0.0,
+            None,
+            false,
+            true,
+        )?;
+        self.finish_top()
+    }
+    /// The overlays over the game on the top panel, the bottom panel, and both shown.
+    fn finish_top(&mut self) -> Result<(), String> {
+        let v = self.top;
+        let c = &mut self.canvases[v.canvas];
         for o in [&self.indicators, &self.toast] {
             if let (Some(image), Some(at)) = (&o.image, o.at) {
                 c.copy(&image.texture, None, at)?;
@@ -628,6 +725,10 @@ impl Drop for Screens {
                 // SAFETY: textures are uniquely owned and all renderers outlive this Drop method.
                 unsafe { image.texture.destroy() };
             }
+        }
+        if let Some(hw) = self.hw.take() {
+            // SAFETY: as above; its EGL image goes with it.
+            unsafe { hw.texture.destroy() };
         }
     }
 }

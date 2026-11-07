@@ -5,6 +5,7 @@ mod environment;
 mod gl;
 pub mod systems;
 mod video;
+pub use gl::{Export, Imported};
 pub use video::Frame;
 #[allow(
     non_camel_case_types,
@@ -109,6 +110,12 @@ struct Context {
     /// A core that draws with the GPU: what it asked for (its callbacks), and its context.
     hw: Option<retro_hw_render_callback>,
     gl: Option<gl::Gl>,
+    /// A GPU core's frames left on the GPU for the player to draw from the dma-buf
+    /// ([`Core::hw_export`]): not read back, except when asked ([`Core::refresh_frame`]). The
+    /// last frame's size, and whether `frame` is older than it.
+    direct: bool,
+    hw_size: (u32, u32),
+    stale: bool,
 }
 
 impl Context {
@@ -335,6 +342,9 @@ impl Core {
             maps: 0,
             hw: None,
             gl: None,
+            direct: false,
+            hw_size: (0, 0),
+            stale: false,
         });
         let mut core = Self {
             api,
@@ -417,6 +427,54 @@ impl Core {
     /// Whether the core draws with the GPU (its frames are read back from it).
     pub fn hardware_rendered(&self) -> bool {
         self.ctx.gl.is_some()
+    }
+
+    /// A GPU core's colour buffer as a dma-buf, and its generation (a new one when the
+    /// framebuffer has grown and the export must be imported again); `None` for a software
+    /// core or when EGL can't export it. Asking for it leaves the frames on the GPU
+    /// ([`Core::set_direct`] on): [`Core::hw_frame`] says where the last one is.
+    pub fn hw_export(&mut self) -> Option<(u64, Export)> {
+        let gl = self.ctx.gl.as_mut()?;
+        gl.enter();
+        let export = gl.export();
+        gl.leave();
+        export
+    }
+
+    /// Frames left on the GPU (true) or read back each one (false, the default). Only for a
+    /// GPU core.
+    pub fn set_direct(&mut self, on: bool) {
+        self.ctx.direct = on && self.ctx.gl.is_some();
+    }
+
+    /// The last frame's size in the exported colour buffer, at its corner the GL way up (row 0
+    /// its bottom), while frames are left on the GPU.
+    pub fn hw_frame(&self) -> Option<(u32, u32)> {
+        (self.ctx.direct && self.ctx.hw_size.0 > 0).then_some(self.ctx.hw_size)
+    }
+
+    /// [`Core::frame`] made the last frame again where frames are left on the GPU: read back
+    /// now, for a picture of it (the pause screen, a state's thumbnail). Nothing for the rest.
+    pub fn refresh_frame(&mut self) {
+        if !(self.ctx.direct && self.ctx.stale) {
+            return;
+        }
+        let (w, h) = self.ctx.hw_size;
+        let origin = self.ctx.hw.is_some_and(|hw| hw.bottom_left_origin);
+        let rotation = self.ctx.rotation;
+        if let Some(gl) = self.ctx.gl.as_mut() {
+            gl.enter();
+            let read = gl.read(w, h, origin, true);
+            gl.leave();
+            match read {
+                Ok(Some(frame)) => {
+                    self.ctx.frame = frame.rotated(rotation);
+                    self.ctx.stale = false;
+                }
+                Ok(None) => {}
+                Err(e) => eprintln!("nibcase: reading the frame back: {e}"),
+            }
+        }
     }
 
     pub fn info(&self) -> &Info {
@@ -937,7 +995,19 @@ unsafe extern "C" fn video_callback(data: *const c_void, width: u32, height: u32
         if data as usize == usize::MAX {
             // RETRO_HW_FRAME_BUFFER_VALID: the frame is in the core's framebuffer.
             let origin = c.hw.is_some_and(|hw| hw.bottom_left_origin);
-            match c.gl.as_mut().map(|gl| gl.read(width, height, origin)) {
+            if c.direct {
+                if let Some(gl) = c.gl.as_ref() {
+                    gl.flush();
+                    c.hw_size = (width, height);
+                    c.stale = true;
+                    return;
+                }
+            }
+            match c
+                .gl
+                .as_mut()
+                .map(|gl| gl.read(width, height, origin, false))
+            {
                 Some(Ok(Some(frame))) => c.frame = frame.rotated(c.rotation),
                 // The first frame through the pixel-pack buffers: the previous picture stays.
                 Some(Ok(None)) => {}

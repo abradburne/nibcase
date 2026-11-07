@@ -18,6 +18,7 @@ use crate::ffi::*;
 use crate::Frame;
 use libloading::Library;
 use std::ffi::{c_char, c_void, CStr};
+use std::os::fd::FromRawFd;
 use std::ptr::null_mut;
 use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
@@ -70,6 +71,17 @@ const EGL_OPENGL_API: u32 = 0x30A2;
 const EGL_PLATFORM_SURFACELESS_MESA: u32 = 0x31DD;
 const EGL_DRAW: i32 = 0x3059;
 const EGL_READ: i32 = 0x305A;
+
+const EGL_WIDTH: i32 = 0x3057;
+const EGL_HEIGHT: i32 = 0x3056;
+const EGL_GL_TEXTURE_2D: u32 = 0x30B1;
+const EGL_LINUX_DMA_BUF: u32 = 0x3270;
+const EGL_LINUX_DRM_FOURCC_EXT: i32 = 0x3271;
+const EGL_DMA_BUF_PLANE0_FD_EXT: i32 = 0x3272;
+const EGL_DMA_BUF_PLANE0_OFFSET_EXT: i32 = 0x3273;
+const EGL_DMA_BUF_PLANE0_PITCH_EXT: i32 = 0x3274;
+const EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT: i32 = 0x3443;
+const EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT: i32 = 0x3444;
 
 const GL_FRAMEBUFFER: u32 = 0x8D40;
 const GL_RENDERBUFFER: u32 = 0x8D41;
@@ -253,6 +265,37 @@ struct Current {
     context: Egl,
 }
 
+/// Time spent reading frames back, over the frames since it was last logged (seconds).
+#[derive(Default)]
+struct Timing {
+    frames: u32,
+    /// The whole of `read`.
+    total: f64,
+    /// Asking for this frame's pixels (glReadPixels into a buffer, the fence, the flush).
+    issue: f64,
+    /// Waiting for the frame before to be finished.
+    wait: f64,
+    /// Mapping it and copying it out.
+    copy: f64,
+}
+
+impl Timing {
+    fn frame(&mut self) {
+        self.frames += 1;
+        if self.frames == 600 {
+            let ms = |t: f64| t * 1000.0 / 600.0;
+            eprintln!(
+                "nibcase: gl: reading a frame back {:.2} ms: issuing {:.2}, waiting for the GPU {:.2}, copying {:.2}",
+                ms(self.total),
+                ms(self.issue),
+                ms(self.wait),
+                ms(self.copy)
+            );
+            *self = Timing::default();
+        }
+    }
+}
+
 /// One pixel-pack buffer and the fence after the read into it.
 struct Pending {
     buffer: u32,
@@ -280,6 +323,12 @@ pub(crate) struct Gl {
     buffer_bytes: usize,
     next: usize,
     pending: Option<Pending>,
+    /// With `NIBCASE_DEBUG=gl`: where reading frames back goes, logged every 600 frames.
+    timing: Option<Timing>,
+    /// Counts the colour buffer's storage: a new one (the framebuffer grown) is exported again.
+    generation: u64,
+    /// The colour buffer as a dma-buf, for the generation it was made for, and its EGL image.
+    exported: Option<(u64, Export, Egl)>,
     // Kept last: dropped after every function above is done with.
     _gles: Option<Library>,
     _lib: Library,
@@ -289,34 +338,11 @@ impl Gl {
     /// A context for a core that asked for `kind`, current when this returns (the caller's
     /// is put back by [`Gl::leave`]).
     pub fn new(kind: Kind, depth: bool, stencil: bool) -> Result<Gl, String> {
-        // SAFETY: loading the system's EGL; every symbol is checked below.
-        let lib = unsafe { Library::new("libEGL.so.1") }.map_err(|e| format!("EGL: {e}"))?;
+        let (lib, egl) = load_egl()?;
         // A GLES library loaded too, so its functions resolve for cores that link it themselves.
-        // SAFETY: as above; its symbols are only reached through eglGetProcAddress.
+        // SAFETY: loading the system's GLES; its symbols are only reached through
+        // eglGetProcAddress.
         let gles = unsafe { Library::new("libGLESv2.so.2") }.ok();
-        macro_rules! sym {
-            ($name:literal) => {
-                // SAFETY: the EGL 1.4 function of that name, with the signature of its field.
-                *unsafe { lib.get(concat!($name, "\0").as_bytes()) }
-                    .map_err(|e| format!("EGL {}: {e}", $name))?
-            };
-        }
-        let egl = EglFns {
-            eglGetProcAddress: sym!("eglGetProcAddress"),
-            eglGetDisplay: sym!("eglGetDisplay"),
-            eglInitialize: sym!("eglInitialize"),
-            eglTerminate: sym!("eglTerminate"),
-            eglBindAPI: sym!("eglBindAPI"),
-            eglChooseConfig: sym!("eglChooseConfig"),
-            eglCreateContext: sym!("eglCreateContext"),
-            eglDestroyContext: sym!("eglDestroyContext"),
-            eglMakeCurrent: sym!("eglMakeCurrent"),
-            eglGetCurrentContext: sym!("eglGetCurrentContext"),
-            eglGetCurrentDisplay: sym!("eglGetCurrentDisplay"),
-            eglGetCurrentSurface: sym!("eglGetCurrentSurface"),
-            eglQueryAPI: sym!("eglQueryAPI"),
-            eglGetError: sym!("eglGetError"),
-        };
         // SAFETY: EGL calls with the arguments the EGL 1.5 specification gives them; every
         // handle passed is one EGL returned.
         unsafe {
@@ -466,6 +492,11 @@ impl Gl {
                 buffer_bytes: 0,
                 next: 0,
                 pending: None,
+                generation: 0,
+                exported: None,
+                timing: std::env::var("NIBCASE_DEBUG")
+                    .is_ok_and(|d| d.split(',').any(|w| w == "gl"))
+                    .then(Timing::default),
                 _gles: gles,
                 _lib: lib,
             })
@@ -584,6 +615,7 @@ impl Gl {
             }
         }
         self.size = (width, height);
+        self.generation += 1;
         FRAMEBUFFER.store(self.fbo as usize, Ordering::Release);
         Ok(())
     }
@@ -596,11 +628,20 @@ impl Gl {
         width: u32,
         height: u32,
         bottom_left_origin: bool,
+        sync: bool,
     ) -> Result<Option<Frame>, String> {
         if width == 0 || height == 0 || width > self.size.0 || height > self.size.1 {
             return Err("hardware frame larger than its framebuffer".into());
         }
         let bytes = width as usize * height as usize * 4;
+        let started = std::time::Instant::now();
+        let mut lap = started;
+        let mut laps = [0f64; 3];
+        let mut split = |i: usize| {
+            let now = std::time::Instant::now();
+            laps[i] += (now - lap).as_secs_f64();
+            lap = now;
+        };
         let gl = &self.gl;
         // SAFETY: GL calls on the current context, into buffers of the sizes given.
         unsafe {
@@ -611,7 +652,7 @@ impl Gl {
             if self.kind.major >= 3 {
                 (gl.glPixelStorei)(GL_PACK_ROW_LENGTH, 0);
             }
-            let frame = match &self.pbo {
+            let frame = match self.pbo.as_ref().filter(|_| !sync) {
                 None => {
                     let mut rgba = vec![0u8; bytes];
                     (gl.glReadPixels)(
@@ -663,6 +704,7 @@ impl Gl {
                     );
                     let fence = (p.glFenceSync)(GL_SYNC_GPU_COMMANDS_COMPLETE, 0);
                     (gl.glFlush)();
+                    split(0);
                     let ready = self.pending.replace(Pending {
                         buffer,
                         fence,
@@ -679,6 +721,7 @@ impl Gl {
                                 1_000_000_000,
                             );
                             (p.glDeleteSync)(r.fence);
+                            split(1);
                             let n = r.width as usize * r.height as usize * 4;
                             (p.glBindBuffer)(GL_PIXEL_PACK_BUFFER, r.buffer);
                             let mapped = if waited == GL_WAIT_FAILED {
@@ -701,13 +744,21 @@ impl Gl {
                             }
                         }
                     };
+                    split(2);
                     (p.glBindBuffer)(GL_PIXEL_PACK_BUFFER, bound as u32);
                     out
                 }
             };
             (gl.glBindFramebuffer)(GL_FRAMEBUFFER, fb as u32);
+            if let Some(t) = self.timing.as_mut() {
+                t.total += started.elapsed().as_secs_f64();
+                t.issue += laps[0];
+                t.wait += laps[1];
+                t.copy += laps[2];
+                t.frame();
+            }
             let error = (gl.glGetError)();
-            if error != 0 && frame.is_none() && self.pbo.is_none() {
+            if error != 0 && frame.is_none() && (sync || self.pbo.is_none()) {
                 return Err(format!(
                     "reading the hardware frame back: GL error {error:#x}"
                 ));
@@ -717,9 +768,200 @@ impl Gl {
     }
 }
 
+impl Gl {
+    /// The colour buffer as a dma-buf (EGL_MESA_image_dma_buf_export), for a renderer to draw
+    /// from without a copy; made again when the framebuffer has grown. Current context only.
+    /// `None` when EGL can't export it: frames are then read back.
+    pub fn export(&mut self) -> Option<(u64, Export)> {
+        if self.fbo == 0 {
+            return None;
+        }
+        if let Some((generation, export, _)) = &self.exported {
+            if *generation == self.generation {
+                return Some((*generation, export.clone()));
+            }
+        }
+        self.drop_export();
+        let get = self.egl.eglGetProcAddress;
+        // SAFETY: EGL extension functions by name, called with this context's display and
+        // texture, and with out-parameters of the sizes the extension gives them.
+        unsafe {
+            let create = get(c"eglCreateImageKHR".as_ptr());
+            let query = get(c"eglExportDMABUFImageQueryMESA".as_ptr());
+            let export = get(c"eglExportDMABUFImageMESA".as_ptr());
+            if create.is_null() || query.is_null() || export.is_null() {
+                return None;
+            }
+            let create: unsafe extern "C" fn(Egl, Egl, u32, Egl, *const i32) -> Egl =
+                std::mem::transmute(create);
+            let query: unsafe extern "C" fn(Egl, Egl, *mut i32, *mut i32, *mut u64) -> u32 =
+                std::mem::transmute(query);
+            let export: unsafe extern "C" fn(Egl, Egl, *mut i32, *mut i32, *mut i32) -> u32 =
+                std::mem::transmute(export);
+            (self.gl.glFlush)();
+            let image = create(
+                self.display,
+                self.context,
+                EGL_GL_TEXTURE_2D,
+                self.color as usize as Egl,
+                [EGL_NONE].as_ptr(),
+            );
+            if image.is_null() {
+                return None;
+            }
+            let (mut fourcc, mut planes, mut modifier) = (0, 0, 0u64);
+            let (mut fd, mut stride, mut offset) = ([-1i32; 4], [0i32; 4], [0i32; 4]);
+            if query(self.display, image, &mut fourcc, &mut planes, &mut modifier) == 0
+                || planes != 1
+                || export(
+                    self.display,
+                    image,
+                    fd.as_mut_ptr(),
+                    stride.as_mut_ptr(),
+                    offset.as_mut_ptr(),
+                ) == 0
+                || fd[0] < 0
+            {
+                destroy_image(&self.egl, self.display, image);
+                return None;
+            }
+            let out = Export {
+                fd: std::sync::Arc::new(std::os::fd::OwnedFd::from_raw_fd(fd[0])),
+                fourcc,
+                modifier,
+                stride: stride[0],
+                offset: offset[0],
+                width: self.size.0,
+                height: self.size.1,
+            };
+            self.exported = Some((self.generation, out.clone(), image));
+            Some((self.generation, out))
+        }
+    }
+
+    fn drop_export(&mut self) {
+        if let Some((_, _, image)) = self.exported.take() {
+            destroy_image(&self.egl, self.display, image);
+        }
+    }
+
+    /// The core's commands sent to the GPU, for a renderer drawing from the dma-buf (the
+    /// kernel orders the two by the buffer's fences).
+    pub fn flush(&self) {
+        // SAFETY: the current context's flush.
+        unsafe { (self.gl.glFlush)() };
+    }
+}
+
+/// The core's colour buffer shared as a dma-buf: one plane, RGBA8 in whatever layout the GPU keeps
+/// it (`modifier`), `width` x `height` (the framebuffer's, larger than a frame may be). The frame
+/// is at its corner the GL way up: row 0 is the frame's bottom.
+#[derive(Clone, Debug)]
+pub struct Export {
+    pub fd: std::sync::Arc<std::os::fd::OwnedFd>,
+    pub fourcc: i32,
+    pub modifier: u64,
+    pub stride: i32,
+    pub offset: i32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// An [`Export`] made the storage of a texture in another context (SDL's renderer's), so that
+/// drawing the texture draws the core's frame. Dropped, the image goes; the texture keeps what
+/// was last there until it is given new storage.
+pub struct Imported {
+    image: Egl,
+    display: Egl,
+    egl: EglFns,
+    _lib: Library,
+}
+
+impl Imported {
+    /// The export made the storage of the texture bound to `GL_TEXTURE_2D` in the current
+    /// context (an EGL one: SDL's renderer on KMS).
+    pub fn into_bound_texture(export: &Export) -> Result<Imported, String> {
+        use std::os::fd::AsRawFd;
+        let (lib, egl) = load_egl()?;
+        // SAFETY: EGL and OES_EGL_image calls on the current context and its display, with
+        // the attribute list the dma-buf import extension gives.
+        unsafe {
+            let display = (egl.eglGetCurrentDisplay)();
+            if display.is_null() {
+                return Err("no EGL display is current".into());
+            }
+            let create = (egl.eglGetProcAddress)(c"eglCreateImageKHR".as_ptr());
+            let target = (egl.eglGetProcAddress)(c"glEGLImageTargetTexture2DOES".as_ptr());
+            if create.is_null() || target.is_null() {
+                return Err("no EGL image import".into());
+            }
+            let create: unsafe extern "C" fn(Egl, Egl, u32, Egl, *const i32) -> Egl =
+                std::mem::transmute(create);
+            let target: unsafe extern "C" fn(u32, Egl) = std::mem::transmute(target);
+            let attributes = [
+                EGL_WIDTH,
+                export.width as i32,
+                EGL_HEIGHT,
+                export.height as i32,
+                EGL_LINUX_DRM_FOURCC_EXT,
+                export.fourcc,
+                EGL_DMA_BUF_PLANE0_FD_EXT,
+                export.fd.as_raw_fd(),
+                EGL_DMA_BUF_PLANE0_OFFSET_EXT,
+                export.offset,
+                EGL_DMA_BUF_PLANE0_PITCH_EXT,
+                export.stride,
+                EGL_DMA_BUF_PLANE0_MODIFIER_LO_EXT,
+                export.modifier as u32 as i32,
+                EGL_DMA_BUF_PLANE0_MODIFIER_HI_EXT,
+                (export.modifier >> 32) as u32 as i32,
+                EGL_NONE,
+            ];
+            let image = create(
+                display,
+                null_mut(),
+                EGL_LINUX_DMA_BUF,
+                null_mut(),
+                attributes.as_ptr(),
+            );
+            if image.is_null() {
+                return Err(format!(
+                    "the frame's dma-buf won't import ({:#x})",
+                    (egl.eglGetError)()
+                ));
+            }
+            target(GL_TEXTURE_2D, image);
+            Ok(Imported {
+                image,
+                display,
+                egl,
+                _lib: lib,
+            })
+        }
+    }
+}
+
+impl Drop for Imported {
+    fn drop(&mut self) {
+        destroy_image(&self.egl, self.display, self.image);
+    }
+}
+
+fn destroy_image(egl: &EglFns, display: Egl, image: Egl) {
+    // SAFETY: an image EGL made on `display`, destroyed once.
+    unsafe {
+        let destroy = (egl.eglGetProcAddress)(c"eglDestroyImageKHR".as_ptr());
+        if !destroy.is_null() {
+            let destroy: unsafe extern "C" fn(Egl, Egl) -> u32 = std::mem::transmute(destroy);
+            destroy(display, image);
+        }
+    }
+}
+
 impl Drop for Gl {
     fn drop(&mut self) {
         self.enter();
+        self.drop_export();
         // SAFETY: names this context made, deleted on it; then the context itself.
         unsafe {
             if let Some(p) = &self.pbo {
@@ -755,6 +997,36 @@ fn major_version(version: &str) -> Option<i32> {
         .split_whitespace()
         .find(|w| w.chars().next().is_some_and(|c| c.is_ascii_digit()))?;
     number.split('.').next()?.parse().ok()
+}
+
+/// The system's EGL and the functions nibcase calls.
+fn load_egl() -> Result<(Library, EglFns), String> {
+    // SAFETY: loading the system's EGL; every symbol is checked below.
+    let lib = unsafe { Library::new("libEGL.so.1") }.map_err(|e| format!("EGL: {e}"))?;
+    macro_rules! sym {
+        ($name:literal) => {
+            // SAFETY: the EGL 1.4 function of that name, with the signature of its field.
+            *unsafe { lib.get(concat!($name, "\0").as_bytes()) }
+                .map_err(|e| format!("EGL {}: {e}", $name))?
+        };
+    }
+    let egl = EglFns {
+        eglGetProcAddress: sym!("eglGetProcAddress"),
+        eglGetDisplay: sym!("eglGetDisplay"),
+        eglInitialize: sym!("eglInitialize"),
+        eglTerminate: sym!("eglTerminate"),
+        eglBindAPI: sym!("eglBindAPI"),
+        eglChooseConfig: sym!("eglChooseConfig"),
+        eglCreateContext: sym!("eglCreateContext"),
+        eglDestroyContext: sym!("eglDestroyContext"),
+        eglMakeCurrent: sym!("eglMakeCurrent"),
+        eglGetCurrentContext: sym!("eglGetCurrentContext"),
+        eglGetCurrentDisplay: sym!("eglGetCurrentDisplay"),
+        eglGetCurrentSurface: sym!("eglGetCurrentSurface"),
+        eglQueryAPI: sym!("eglQueryAPI"),
+        eglGetError: sym!("eglGetError"),
+    };
+    Ok((lib, egl))
 }
 
 /// What is current on this thread, to put back.

@@ -96,6 +96,8 @@ impl State {
         progress: Option<Vec<u8>>,
     ) -> Result<Self, String> {
         let data = core.serialize()?;
+        // A GPU core's frame, read back for the thumbnail (otherwise left on the GPU).
+        core.refresh_frame();
         Ok(Self {
             metadata: Metadata {
                 core: core.info().name.clone(),
