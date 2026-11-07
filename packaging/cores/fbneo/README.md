@@ -10,8 +10,10 @@ Installing it with `nibcase-fbneo` registers its options with DSlot for arcade g
 `sf2.zip`), read whole by the core. Sets must match the core's version (the DAT in its source,
 `dats/`); a set that doesn't is refused with the files it lacks.
 
-The package also installs `/usr/share/libretro-fbneo/arcade.tsv`, every arcade set's title, year
-and maker from that DAT, which DSlot names the games on the shelf by.
+The package also installs `/usr/share/libretro-fbneo/arcade.tsv`, every arcade set's title, maker
+and year from that DAT and its board's family from the core's `gamelist.txt` (Neo Geo, CPS-1,
+CPS-2, CPS-3, PGM, Cave, Toaplan, Konami, Sega, Taito, ...), which DSlot names the games on the
+shelf by and splits its Arcade page into sections by.
 
 **BIOS sets** are the player's own: `neogeo.zip` for Neo Geo games, `pgm.zip`, `skns.zip` and the
 others the core's documentation lists. Put them in `BIOS/` (or beside the games). They are not

@@ -15,8 +15,9 @@ sha256sums=('SKIP' 'SKIP')
 build() {
     make -C "$srcdir/fbneo/src/burner/libretro" platform=unix \
         CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55' -j"$(nproc)"
-    # The sets' names, years and makers for DSlot's shelf, from FinalBurn Neo's own DAT.
-    python "$srcdir/arcade-list.py" "$srcdir/fbneo/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat" > arcade.tsv
+    # The sets' names, makers, years and boards for DSlot's shelf, from FinalBurn Neo's own lists.
+    python "$srcdir/arcade-list.py" "$srcdir/fbneo/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat" \
+        "$srcdir/fbneo/gamelist.txt" > arcade.tsv
 }
 package() {
     install -Dm755 "$srcdir/fbneo/src/burner/libretro/fbneo_libretro.so" "$pkgdir/usr/lib/libretro/fbneo_libretro.so"
