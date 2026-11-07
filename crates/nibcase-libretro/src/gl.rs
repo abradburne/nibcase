@@ -220,7 +220,6 @@ fns! {
     glPixelStorei: fn(u32, i32);
     glReadPixels: fn(i32, i32, i32, i32, u32, u32, *mut c_void);
     glFlush: fn();
-    glCopyTexSubImage2D: fn(u32, i32, i32, i32, i32, i32, i32, i32);
     }
 }
 
@@ -237,6 +236,7 @@ fns! {
     glClientWaitSync: fn(*mut c_void, u32, u64) -> u32;
     glDeleteSync: fn(*mut c_void);
     glWaitSync: fn(*mut c_void, u32, u64);
+    glBlitFramebuffer: fn(i32, i32, i32, i32, i32, i32, i32, i32, u32, u32);
     }
 }
 
@@ -846,6 +846,12 @@ static COPY_FNS: std::sync::OnceLock<Option<CopyFns>> = std::sync::OnceLock::new
 
 /// The renderer's framebuffer for reading a shared frame: one, made on its context.
 static COPY_FBO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+static COPY_DRAW_FBO: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
+const GL_READ_FRAMEBUFFER: u32 = 0x8CA8;
+const GL_DRAW_FRAMEBUFFER: u32 = 0x8CA9;
+const GL_READ_FRAMEBUFFER_BINDING: u32 = 0x8CAA;
+const GL_DRAW_FRAMEBUFFER_BINDING: u32 = 0x8CA6;
+const GL_COLOR_BUFFER_BIT: u32 = 0x4000;
 
 const GL_COLOR_ATTACHMENT0_READ: u32 = GL_COLOR_ATTACHMENT0;
 const GL_TIMEOUT_IGNORED: u64 = u64::MAX;
@@ -882,28 +888,63 @@ pub fn copy_shared_frame(frame: &SharedFrame, width: u32, height: u32) -> Result
         if !frame.fence.is_null() {
             (sync.glWaitSync)(frame.fence, 0, GL_TIMEOUT_IGNORED);
         }
-        let mut fbo = COPY_FBO.load(Ordering::Relaxed);
-        if fbo == 0 {
-            (gl.glGenFramebuffers)(1, &mut fbo);
-            COPY_FBO.store(fbo, Ordering::Relaxed);
+        // Two framebuffers of the renderer's: one reading the core's texture, one drawing
+        // into the renderer's texture bound now. A blit stays on the GPU.
+        let mut fbos = [
+            COPY_FBO.load(Ordering::Relaxed),
+            COPY_DRAW_FBO.load(Ordering::Relaxed),
+        ];
+        if fbos[0] == 0 {
+            (gl.glGenFramebuffers)(2, fbos.as_mut_ptr());
+            COPY_FBO.store(fbos[0], Ordering::Relaxed);
+            COPY_DRAW_FBO.store(fbos[1], Ordering::Relaxed);
         }
-        let mut bound = 0;
-        (gl.glGetIntegerv)(GL_FRAMEBUFFER_BINDING, &mut bound);
-        (gl.glBindFramebuffer)(GL_FRAMEBUFFER, fbo);
+        let (mut read, mut draw, mut target) = (0, 0, 0);
+        (gl.glGetIntegerv)(GL_READ_FRAMEBUFFER_BINDING, &mut read);
+        (gl.glGetIntegerv)(GL_DRAW_FRAMEBUFFER_BINDING, &mut draw);
+        (gl.glGetIntegerv)(GL_TEXTURE_BINDING_2D, &mut target);
+        (gl.glBindFramebuffer)(GL_READ_FRAMEBUFFER, fbos[0]);
         (gl.glFramebufferTexture2D)(
-            GL_FRAMEBUFFER,
+            GL_READ_FRAMEBUFFER,
             GL_COLOR_ATTACHMENT0_READ,
             GL_TEXTURE_2D,
             frame.texture,
             0,
         );
-        let status = (gl.glCheckFramebufferStatus)(GL_FRAMEBUFFER);
-        if status == GL_FRAMEBUFFER_COMPLETE {
-            (gl.glCopyTexSubImage2D)(GL_TEXTURE_2D, 0, 0, 0, 0, 0, width as i32, height as i32);
+        (gl.glBindFramebuffer)(GL_DRAW_FRAMEBUFFER, fbos[1]);
+        (gl.glFramebufferTexture2D)(
+            GL_DRAW_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0_READ,
+            GL_TEXTURE_2D,
+            target as u32,
+            0,
+        );
+        let status = (
+            (gl.glCheckFramebufferStatus)(GL_READ_FRAMEBUFFER),
+            (gl.glCheckFramebufferStatus)(GL_DRAW_FRAMEBUFFER),
+        );
+        if status == (GL_FRAMEBUFFER_COMPLETE, GL_FRAMEBUFFER_COMPLETE) {
+            let (w, h) = (width as i32, height as i32);
+            (sync.glBlitFramebuffer)(
+                0,
+                0,
+                w,
+                h,
+                0,
+                0,
+                w,
+                h,
+                GL_COLOR_BUFFER_BIT,
+                GL_NEAREST as u32,
+            );
         }
-        (gl.glBindFramebuffer)(GL_FRAMEBUFFER, bound as u32);
-        if status != GL_FRAMEBUFFER_COMPLETE {
-            return Err(format!("the shared frame can't be read ({status:#x})"));
+        (gl.glBindFramebuffer)(GL_READ_FRAMEBUFFER, read as u32);
+        (gl.glBindFramebuffer)(GL_DRAW_FRAMEBUFFER, draw as u32);
+        if status != (GL_FRAMEBUFFER_COMPLETE, GL_FRAMEBUFFER_COMPLETE) {
+            return Err(format!(
+                "the shared frame can't be blitted ({:#x}, {:#x})",
+                status.0, status.1
+            ));
         }
         let error = (gl.glGetError)();
         if error != 0 {

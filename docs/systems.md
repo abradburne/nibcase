@@ -164,7 +164,7 @@ different conversion of a unit is drawn whole, never cut wrongly.
   with no window (Mesa's surfaceless platform), current only while the core runs, and a framebuffer
   as large as the core's largest frame (it grows with the Rendering Resolution). The player draws
   the frames from the GPU: the core's context is made in the share group of the top panel's
-  renderer's, and each frame is copied on the GPU (glCopyTexSubImage2D, after a fence) into the
+  renderer's, and each frame is copied on the GPU (a framebuffer blit, after a fence) into the
   panel's texture; it is read back only for a picture of it (the pause screen, a state's
   thumbnail). (A dma-buf exported to SDL's display, as first done, made the display controller's
   driver map every frame's buffer and fail to; after many launches every import failed and the

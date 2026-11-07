@@ -329,17 +329,19 @@ struct FrameTiming {
     core: Duration,
     worst: Duration,
     whole: Duration,
-    /// Drawing both panels and presenting them.
+    /// Drawing both panels and presenting them, and of that the main thread's CPU time.
     draw: Duration,
+    draw_cpu: Duration,
     /// Frames whose core time was over a refresh (16.7 ms).
     over: u32,
 }
 /// Frames a line of the log covers: two seconds.
 const TIMING_FRAMES: u32 = 120;
 impl FrameTiming {
-    fn frame(&mut self, core: Duration, draw: Duration, whole: Duration) {
+    fn frame(&mut self, core: Duration, draw: Duration, draw_cpu: Duration, whole: Duration) {
         self.frames += 1;
         self.draw += draw;
+        self.draw_cpu += draw_cpu;
         self.core += core;
         self.worst = self.worst.max(core);
         self.whole += whole;
@@ -348,17 +350,28 @@ impl FrameTiming {
             let ms = |d: Duration| d.as_secs_f64() * 1000.0;
             let n = f64::from(TIMING_FRAMES);
             eprintln!(
-                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; drawing {:.2}; the whole frame {:.2}",
+                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; drawing {:.2} ({:.2} of it the CPU's); the whole frame {:.2}",
                 ms(self.core) / n,
                 ms(self.worst),
                 self.over,
                 TIMING_FRAMES,
                 ms(self.draw) / n,
+                ms(self.draw_cpu) / n,
                 ms(self.whole) / n
             );
             *self = FrameTiming::default();
         }
     }
+}
+/// The calling thread's CPU time so far.
+fn thread_cpu() -> Duration {
+    let mut t = libc::timespec {
+        tv_sec: 0,
+        tv_nsec: 0,
+    };
+    // SAFETY: a valid clock id and a timespec to write into.
+    unsafe { libc::clock_gettime(libc::CLOCK_THREAD_CPUTIME_ID, &mut t) };
+    Duration::new(t.tv_sec as u64, t.tv_nsec as u32)
 }
 /// Whether `NIBCASE_DEBUG` (words separated by commas) has `word`: `cheevos` logs every
 /// request to RetroAchievements, rcheevos' own messages and how it maps the console's memory.
@@ -1071,6 +1084,7 @@ fn player(
         }
         let ran = running.elapsed();
         let drawing = Instant::now();
+        let drawing_cpu = thread_cpu();
         // A GPU core's frame drawn from the GPU where it can be; otherwise (and for every
         // software core) the frame, read back.
         let mut drawn = false;
@@ -1174,6 +1188,7 @@ fn player(
             }
         }
         let drew = drawing.elapsed();
+        let drew_cpu = thread_cpu().saturating_sub(drawing_cpu);
         for message in core.messages() {
             eprintln!("nibcase: {message}");
         }
@@ -1191,7 +1206,7 @@ fn player(
         next += period;
         let after = Instant::now();
         if let Some(t) = timing.as_mut() {
-            t.frame(ran, drew, after - woke);
+            t.frame(ran, drew, drew_cpu, after - woke);
         }
         if next > after {
             std::thread::sleep(next - after);

@@ -21,7 +21,7 @@
   `SET_HW_SHARED_CONTEXT` is accepted.
 - **A GPU core's frames reach the screen without a dma-buf:** its context is made in the top
   panel's renderer's share group (`share_with_current_context`), and each frame is copied on the
-  GPU into the panel's texture (`Core::hw_shared`, `copy_shared_frame`) after a fence. Importing
+  GPU into the panel's texture (`Core::hw_shared`, `copy_shared_frame`: a blit) after a fence. Importing
   an exported dma-buf into SDL's display, as before, made the display controller's driver fail to
   map it at every launch and, after about 80, every frame came out white until a reboot. The
   dma-buf export is gone.
