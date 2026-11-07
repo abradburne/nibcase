@@ -620,12 +620,13 @@ dependencies = [
 
 [[package]]
 name = "nib-cheevos"
-version = "0.3.0"
-source = "git+https://github.com/abradburne/nibkit?tag=v0.3.0#a4699974f3595a8a5a6080d98c1f0c6e3e12f047"
+version = "0.3.1"
+source = "git+https://github.com/abradburne/nibkit?tag=v0.3.1#e5cdbd8aa4c9aeba0dba1b41468a0caeb9979b52"
 dependencies = [
  "cc",
  "chd",
  "libc",
+ "miniz_oxide 0.8.9",
  "zip",
 ]
 
@@ -667,8 +668,8 @@ dependencies = [
 
 [[package]]
 name = "nibkit"
-version = "0.3.0"
-source = "git+https://github.com/abradburne/nibkit?tag=v0.3.0#a4699974f3595a8a5a6080d98c1f0c6e3e12f047"
+version = "0.3.1"
+source = "git+https://github.com/abradburne/nibkit?tag=v0.3.1#e5cdbd8aa4c9aeba0dba1b41468a0caeb9979b52"
 dependencies = [
  "fontdue",
  "libc",

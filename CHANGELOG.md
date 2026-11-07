@@ -17,7 +17,7 @@
 - **Handheld defaults and hidden options** per core (`HANDHELD_DEFAULTS`, `HIDDEN_OPTIONS` in
   `systems.rs`): a default that isn't the core's is the default everywhere (the menu, Y, DSlot's
   description); a hidden option is in neither menu.
-- nibkit 0.3.0 (from 0.2.1): the menu's `sections`, unused.
+- nibkit 0.3.1 (from 0.2.1): PSP games hashed (with `cso`, CSO images); the menu's `sections`, unused.
 
 ## 0.2.0
 
