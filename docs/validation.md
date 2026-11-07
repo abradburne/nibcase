@@ -17,7 +17,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | Disk System | — | registered, BIOS check tested | gameplay (no free homebrew found) |
 | SG-1000 | — | registered | gameplay (no free homebrew found) |
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
-| PSP | owned games (CSO, ISO) | 1x: 4-6 ms for Ridge Racer 2, Burnout Dominator, LocoRoco; God of War's title 18-30 ms | gameplay past the menus, a game's placard |
+| PSP | owned games (CSO, ISO) | 1x, copy_image hidden: Ridge Racer 2's race 12.1 ms, God of War's title 13.5, LocoRoco 3.9, Burnout 4.8 | long play, a game's placard |
 
 ## The first SNES release, 2026-10-20
 
@@ -379,3 +379,22 @@ effects drawn into textures, a render target after another), not by the GPU or t
 (`retro_serialize_size` is 0) and the player didn't resume. The resume now waits after each frame
 until the core has states (at most ten seconds), and quitting before then leaves the resume state
 as it was.
+
+**The race profiled (perf, 8 s of it, an unstripped core).** In nibcase's main thread `retro_run`
+was 62 %, PPSSPP's `GLQueueRunner::PerformCopy` 25 % of it, with about 21 % in the kernel and 13 %
+in `drmIoctl` under it, and `memcpy` 8 %; Mesa's driver 42 % of all samples. PPSSPP copies its
+framebuffers into one another with glCopyImageSubData, which Panfrost (OpenGL ES 3.1, the copy an
+extension, EXT/OES_copy_image) does on the CPU after waiting for the GPU. Hidden from the core
+(`MESA_EXTENSION_OVERRIDE=-GL_EXT_copy_image -GL_OES_copy_image`, `systems::CORE_ENV`), it blits
+on the GPU instead:
+
+| Game (screen) | With the extension | Without |
+|---|---|---|
+| Ridge Racer 2 (a race, from the resume state) | 19.6 ms | 12.1-12.7 ms, worst 16.3 |
+| God of War (the title) | 19.3 ms | 13.5 ms |
+| LocoRoco (its menu) | 6.5 ms | 3.9 ms |
+| Burnout Dominator | 4.8 ms | 4.8 ms |
+
+Screenshots with and without match (LocoRoco exactly, the others within 0.16 % RMSE, a frame's
+timing). Later in the same race, past frame 1200 without input, a block cost 21 ms: not yet looked
+into.

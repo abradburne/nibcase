@@ -178,6 +178,9 @@ different conversion of a unit is drawn whole, never cut wrongly.
   context to try) and the PSP-1000's 32 MB, which every UMD game runs on, so that a state, which
   holds the PSP's memory whole, is half the size. Homebrew run as an ELF or a loose PBP gets 64 MB
   whatever the setting, and its states are over the 64 MiB nibcase keeps.
+- **Copying framebuffers on the GPU:** nibcase hides OpenGL ES's copy-image extension from
+  PPSSPP (`CORE_ENV`: `MESA_EXTENSION_OVERRIDE`, set before the first GL context), which Panfrost
+  does on the CPU; the core then blits. A Ridge Racer 2 race went from 19.6 to 12.1 ms a frame.
 - **Hidden options** (`HIDDEN_OPTIONS`): networking (ad hoc play needs a server and addresses
   nibcase can't set up), the backend and cheats (RetroAchievements refuses a game with cheats on).
   41 of the core's 76 options are shown.

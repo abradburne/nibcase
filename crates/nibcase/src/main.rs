@@ -154,6 +154,8 @@ fn run() -> Result<(), String> {
     let Some(mut args) = Args::parse(std::env::args().skip(1))? else {
         return Ok(());
     };
+    // The core's environment (systems::CORE_ENV) before SDL makes the first GL context.
+    nibcase_libretro::systems::apply_core_env(&args.core);
     let stop = Arc::new(AtomicBool::new(false));
     for signal in [signal_hook::consts::SIGTERM, signal_hook::consts::SIGINT] {
         signal_hook::flag::register(signal, stop.clone()).map_err(|e| e.to_string())?;

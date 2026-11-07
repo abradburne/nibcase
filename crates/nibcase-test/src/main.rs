@@ -158,6 +158,8 @@ fn run() -> Result<(), String> {
     } else {
         None
     };
+    // The core's environment (systems::CORE_ENV), as the player sets it, before any GL context.
+    nibcase_libretro::systems::apply_core_env(&path);
     let result = (|| {
         let mut core = Core::open(Config {
             core: path.clone(),

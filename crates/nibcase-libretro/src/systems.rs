@@ -133,6 +133,41 @@ pub fn hidden_option(core: &str, key: &str) -> bool {
         })
 }
 
+/// Environment a core's process needs, by core: (variable, words added to it). Set before the
+/// first GL context (SDL's renderer's, or the core's own), when Mesa reads it.
+///
+/// PPSSPP copies framebuffers into one another for its effects with glCopyImageSubData where the
+/// driver offers it (EXT/OES_copy_image, on OpenGL ES 3.1); Panfrost does that copy on the CPU,
+/// waiting for the GPU first, which made a Ridge Racer 2 race 19.6 ms a frame. Without the
+/// extension the core blits, on the GPU: 12.7 ms, the picture the same (docs/validation.md).
+pub const CORE_ENV: &[(&str, &[(&str, &str)])] = &[(
+    "ppsspp",
+    &[(
+        "MESA_EXTENSION_OVERRIDE",
+        "-GL_EXT_copy_image -GL_OES_copy_image",
+    )],
+)];
+
+/// [`CORE_ENV`] for the core at `path` set in this process, added to what is there. Call it
+/// while the process has one thread, before any GL context.
+pub fn apply_core_env(path: &Path) {
+    let Some(stem) = path.file_stem().and_then(|s| s.to_str()) else {
+        return;
+    };
+    let core = stem.strip_suffix("_libretro").unwrap_or(stem);
+    for (key, words) in CORE_ENV
+        .iter()
+        .filter(|(c, _)| *c == core)
+        .flat_map(|(_, env)| env.iter())
+    {
+        let value = match std::env::var(key) {
+            Ok(old) if !old.trim().is_empty() => format!("{old} {words}"),
+            _ => (*words).to_owned(),
+        };
+        std::env::set_var(key, value);
+    }
+}
+
 /// The RG DS+'s default for a core's option, where it isn't the core's.
 pub fn handheld_default(core: &str, key: &str) -> Option<&'static str> {
     HANDHELD_DEFAULTS
@@ -484,6 +519,19 @@ mod tests {
             .map(System::id)
             .collect();
         assert_eq!(earning, ["SFC", "FC", "MD", "GG", "LYNX", "PS", "PSP"]);
+    }
+    #[test]
+    fn a_cores_environment_is_added_to() {
+        std::env::remove_var("MESA_EXTENSION_OVERRIDE");
+        apply_core_env(Path::new("/usr/lib/libretro/snes9x_libretro.so"));
+        assert!(std::env::var("MESA_EXTENSION_OVERRIDE").is_err());
+        std::env::set_var("MESA_EXTENSION_OVERRIDE", "-GL_KHR_debug");
+        apply_core_env(Path::new("/usr/lib/libretro/ppsspp_libretro.so"));
+        assert_eq!(
+            std::env::var("MESA_EXTENSION_OVERRIDE").unwrap(),
+            "-GL_KHR_debug -GL_EXT_copy_image -GL_OES_copy_image"
+        );
+        std::env::remove_var("MESA_EXTENSION_OVERRIDE");
     }
     #[test]
     fn handheld_defaults_and_hidden_options() {
