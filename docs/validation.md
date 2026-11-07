@@ -17,7 +17,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | Disk System | — | registered, BIOS check tested | gameplay (no free homebrew found) |
 | SG-1000 | — | registered | gameplay (no free homebrew found) |
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
-| PSP | test programs, in an aarch64 VM on Mesa's llvmpipe | not yet | everything on the DS+: the cost per frame on Panfrost, the defaults, a game's placard |
+| PSP | test programs and owned CSOs, in an aarch64 VM on Mesa's llvmpipe | not yet | everything on the DS+: the cost per frame on Panfrost, the defaults, a game's placard |
 
 ## The first SNES release, 2026-10-20
 
@@ -324,6 +324,12 @@ PSP test programs (pspautotests' demos, read in place, never committed).
   core's memory stick made in the saves folder (`PSP/SAVEDATA`, `PSP/SYSTEM`).
 - **The description:** `[achievements] systems = ["PSP"]`, 41 options, Backend and cheats hidden,
   PSP model defaulting to the PSP-1000.
+
+**Owned games (CSO), the same day.** Four UMDs as CSOs (Burnout Legends, Burnout Dominator,
+LocoRoco, Ridge Racer 2) hash through nib-cheevos' CSO reader in about 0.2 s each on the Mac, and
+the service knows each hash (its game ids 3185, 3189, 10523, 18080). LocoRoco boots in the VM's
+player to its language screen, shown at 960 x 540 in the top panel's middle, and its resume state
+with the PSP-1000 model is 40 MB (41,950,384 bytes), under the 64 MiB kept.
 
 Booting takes the core's loader thread a moment: a bench of 60 frames ends before the program
 starts (p50 0.04 ms); use thousands of frames.

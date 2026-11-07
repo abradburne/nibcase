@@ -14,7 +14,7 @@ report picks it up. Code: `crates/nibcase/src/achievements.rs`.
 | Game Gear | yes | Crystal Warriors: 0 of 73 |
 | Atari Lynx | yes | California Games: 0 of 14 |
 | PlayStation | yes | Gran Turismo (a `.chd`): 0 of 68 |
-| PSP | yes (placard not yet seen) | homebrew in a VM: identified (`EBOOT.PBP`), the memory mapped as below; a game with a set still to be played on the DS+ |
+| PSP | yes (placard not yet seen) | four owned CSOs identified, each a game the service knows (LocoRoco: 10523); the memory mapped as below in a VM; a game's placard still to see on the DS+ |
 | Master System, Neo Geo Pocket, WonderSwan, PC Engine | not yet | only homebrew to hand, which the service doesn't know: signed in, identified, the memory mapped, "does not recognise this dump" |
 | SG-1000, Disk System, PC Engine CD | not yet | no game with a set to hand |
 | Game & Watch | no | rcheevos 12.4 has no hash rule for `.mgw` units |
