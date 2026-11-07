@@ -245,7 +245,12 @@ fn run() -> Result<(), String> {
     if let Some(c) = &mut cheevos {
         c.check_options(&core);
     }
-    if !args.fresh && prefs.enabled("resume") && core.has_states() && saves.path(0).exists() {
+    let resume = !args.fresh && prefs.enabled("resume") && saves.path(0).exists();
+    // A core that boots its game on a thread of its own (PPSSPP) has no states yet: the resume
+    // waits for them, after each frame.
+    if resume && !core.has_states() {
+        saves.wait_to_resume();
+    } else if resume {
         match saves.load(&mut core, 0) {
             Ok(progress) => {
                 if let Some(c) = &mut cheevos {
@@ -280,7 +285,8 @@ fn run() -> Result<(), String> {
         eprintln!("nibcase: {e}");
     }
     let ram = saves.battery(&mut core, true);
-    let state = if !core.has_states() {
+    // Not over a resume state still waiting to be loaded: the game would lose its place.
+    let state = if !core.has_states() || saves.resume_waiting() {
         Ok(())
     } else {
         let progress = cheevos.as_mut().and_then(Session::progress);
@@ -476,6 +482,11 @@ fn headless(
         }
         if saves.pending() {
             saves.restore_pending(core)?;
+        }
+        if let Some(progress) = saves.try_resume(core) {
+            if let Some(c) = cheevos.as_mut() {
+                c.jumped(progress.as_deref());
+            }
         }
         ran += 1;
         if i % 60 == 0 {
@@ -973,6 +984,11 @@ fn player(
             frames += 1;
             if saves.pending() {
                 saves.restore_pending(core)?;
+            }
+            if let Some(progress) = saves.try_resume(core) {
+                if let Some(c) = cheevos.as_mut() {
+                    c.jumped(progress.as_deref());
+                }
             }
         }
         let queued = f64::from(queue.size() / 8);

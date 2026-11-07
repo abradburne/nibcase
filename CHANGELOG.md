@@ -19,6 +19,9 @@
   parts, `NIBCASE_DEBUG=frames` the core's time a frame; the loop's error is said before the core
   is torn down. `GET_PREFERRED_HW_RENDER` answers OpenGL ES 3;
   `SET_HW_SHARED_CONTEXT` is accepted.
+- **Resuming a core that boots on a thread of its own** (PPSSPP): it has no states just after
+  the load, and the game didn't resume. The resume now waits after each frame until the core has
+  states (ten seconds at most, then a notice), and quitting before then doesn't write over it.
 - **Handheld defaults and hidden options** per core (`HANDHELD_DEFAULTS`, `HIDDEN_OPTIONS` in
   `systems.rs`): a default that isn't the core's is the default everywhere (the menu, Y, DSlot's
   description); a hidden option is in neither menu.

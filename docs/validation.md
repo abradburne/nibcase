@@ -365,3 +365,17 @@ PSP-1000. The SoC stayed under 57 °C, charging from 9 %.
 The first 600 frames hold the game's load (a frame up to 340 ms): a core torn down then, while
 its loader thread runs (the player failing at start: no sound device, run without DSlot's
 environment), crashes PPSSPP; the player now says why it stopped before tearing it down.
+
+**A race, from the player's resume state (Ridge Racer 2, 2026-11-07).** Its sound broke up in
+play. From the state the player quit with, mid-race: the core 19.5 ms a frame (frames 600-1300),
+over the 16.7 of a frame, so the sound queue runs dry. Neither the GPU's clock (pinned at 800 MHz:
+19.5 ms; the governor leaves it at 600) nor Skip GPU Readbacks (19.4) nor Panfrost without AFBC
+(23.9) helps; Skip Buffer Effects makes it 2.2 ms and the screen white. Over 5 s nibcase's main
+thread, where PPSSPP's GL commands run (inside `retro_run`), used 93 % of a core, its emulation
+thread 30 %: the race is bound by the CPU's cost of driving Panfrost through OpenGL (the game's
+effects drawn into textures, a render target after another), not by the GPU or the emulation.
+
+**Resuming:** PPSSPP boots a game on a loader thread, so just after the load it has no states
+(`retro_serialize_size` is 0) and the player didn't resume. The resume now waits after each frame
+until the core has states (at most ten seconds), and quitting before then leaves the resume state
+as it was.

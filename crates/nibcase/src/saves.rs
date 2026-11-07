@@ -346,12 +346,17 @@ pub struct Saves {
     /// expose their battery RAM only once a frame has run. Until it is loaded, that memory is
     /// never written, so the file on the card can't be replaced by a blank one.
     pending: Vec<(u32, PathBuf, Vec<u8>)>,
+    /// Frames left to wait for the core to have states, to resume the game: a core that boots
+    /// its game on a thread of its own (PPSSPP) has none until it has.
+    resume_wait: Option<u32>,
     /// Frames run while battery files waited; after [`PATIENCE`] the core is taken not to use them.
     waited: u32,
 }
 
 /// Frames to wait for a core to show memory a battery file is for.
 const PATIENCE: u32 = 60;
+/// Frames a resume waits for the core to have states: ten seconds.
+const RESUME_PATIENCE: u32 = 600;
 
 /// The battery RAM to give a core whose memory is `current` from a file of another core:
 /// the file's bytes as far as both reach, the core's own beyond that.
@@ -381,6 +386,7 @@ impl Saves {
             last_rtc: Vec::new(),
             notices: Vec::new(),
             pending: Vec::new(),
+            resume_wait: None,
             waited: 0,
         }
     }
@@ -413,6 +419,42 @@ impl Saves {
             }
         }
         self.restore_pending(core)
+    }
+    /// The resume state to be loaded once the core has states ([`Saves::try_resume`] after each
+    /// frame), not now.
+    pub fn wait_to_resume(&mut self) {
+        self.resume_wait = Some(RESUME_PATIENCE);
+    }
+    /// Whether the resume state waits for the core: until it is loaded, quitting mustn't write
+    /// over it.
+    pub fn resume_waiting(&self) -> bool {
+        self.resume_wait.is_some()
+    }
+    /// The resume state loaded if the core now has states: its RetroAchievements progress
+    /// (`Some`) when it was loaded; `None` while waiting, or when it couldn't be (said in the
+    /// log, or a notice once the wait is over).
+    pub fn try_resume(&mut self, core: &mut Core) -> Option<Option<Vec<u8>>> {
+        let left = self.resume_wait?;
+        if core.has_states() {
+            self.resume_wait = None;
+            return match self.load(core, 0) {
+                Ok(progress) => Some(progress),
+                Err(e) => {
+                    eprintln!("nibcase: resume skipped: {e}");
+                    None
+                }
+            };
+        }
+        if left == 0 {
+            self.resume_wait = None;
+            self.notices.push(format!(
+                "{} had no states ten seconds in: not resumed, the resume state kept",
+                core.info().name
+            ));
+        } else {
+            self.resume_wait = Some(left - 1);
+        }
+        None
     }
     /// Whether a battery file still waits for the core to show its memory.
     pub fn pending(&self) -> bool {
