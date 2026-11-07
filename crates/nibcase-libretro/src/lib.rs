@@ -943,9 +943,11 @@ impl Drop for Core {
         self.call(|a| {
             // SAFETY: library and context remain live during final unload/deinit.
             unsafe {
-                if let (true, Some(destroy)) = (loaded, destroy) {
-                    destroy();
-                }
+                // The game unloaded while its GL context is still whole: PPSSPP saves its
+                // shader cache then (it saved nothing when told first that the context goes),
+                // and tears its GL side down itself. Told after that, it crashed: a core that
+                // has unloaded its game is not told the context goes (it goes below).
+                let _ = destroy;
                 if loaded {
                     (a.unload_game)();
                 }
