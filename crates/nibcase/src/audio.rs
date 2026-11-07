@@ -64,14 +64,23 @@ impl Resampler {
             let center = (self.position >> 32) as usize;
             let phase = (((self.position & 0xffffffff) * PHASES as u64) >> 32) as usize;
             let start = center - (TAPS / 2 - 1);
-            let mut out = [0.0; 2];
-            for (sample, weight) in self.samples[start..start + TAPS]
-                .iter()
-                .zip(&self.table[phase])
+            // Four partial sums a channel, not one: each add then doesn't wait on the one
+            // before, and the compiler can use the vector unit (it may not reorder float adds
+            // itself). On the RG DS+ the single sum was 0.7 ms of every PSP frame.
+            let mut acc = [[0.0f32; 2]; 4];
+            for (samples, weights) in self.samples[start..start + TAPS]
+                .chunks_exact(4)
+                .zip(self.table[phase].chunks_exact(4))
             {
-                out[0] += sample[0] * weight;
-                out[1] += sample[1] * weight;
+                for k in 0..4 {
+                    acc[k][0] += samples[k][0] * weights[k];
+                    acc[k][1] += samples[k][1] * weights[k];
+                }
             }
+            let out = [
+                (acc[0][0] + acc[1][0]) + (acc[2][0] + acc[3][0]),
+                (acc[0][1] + acc[1][1]) + (acc[2][1] + acc[3][1]),
+            ];
             self.output.extend(out);
             self.position += increment;
         }
