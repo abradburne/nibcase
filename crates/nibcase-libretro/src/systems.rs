@@ -31,6 +31,11 @@ pub enum System {
     /// folder of their own). No BIOS: the core has its own firmware (HLE). The core draws with the
     /// GPU (OpenGL ES 3).
     Psp,
+    /// Arcade boards (Neo Geo, CPS-1/2/3, Toaplan, Cave and the others FinalBurn Neo plays):
+    /// each game a MAME-style set, a `.zip` or `.7z` the core reads whole, named by its set
+    /// (`mslug.zip`). A board's BIOS set (`neogeo.zip`) is the player's own, in `BIOS/` or beside
+    /// the games.
+    Arcade,
 }
 /// A core nibcase registers with DSlot: `/usr/lib/libretro/<name>_libretro.so`, described as
 /// `nibcase-<name>`, playing these systems (the first is the one it is inferred for).
@@ -83,6 +88,10 @@ pub const CORES: &[CoreSpec] = &[
     CoreSpec {
         name: "ppsspp",
         systems: &[System::Psp],
+    },
+    CoreSpec {
+        name: "fbneo",
+        systems: &[System::Arcade],
     },
 ];
 /// Core options whose default on the RG DS+ isn't the core's own, by core: (key, value). Each is
@@ -177,7 +186,7 @@ pub fn handheld_default(core: &str, key: &str) -> Option<&'static str> {
         .map(|(_, v)| *v)
 }
 impl System {
-    pub const ALL: [Self; 15] = [
+    pub const ALL: [Self; 16] = [
         Self::Snes,
         Self::Nes,
         Self::MegaDrive,
@@ -193,6 +202,7 @@ impl System {
         Self::Sg1000,
         Self::PlayStation,
         Self::Psp,
+        Self::Arcade,
     ];
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|s| s.id() == id)
@@ -215,6 +225,7 @@ impl System {
             Self::Sg1000 => "SG1000",
             Self::PlayStation => "PS",
             Self::Psp => "PSP",
+            Self::Arcade => "ARCADE",
         }
     }
     pub fn label(self) -> &'static str {
@@ -234,6 +245,7 @@ impl System {
             Self::Sg1000 => "SG-1000",
             Self::PlayStation => "PlayStation",
             Self::Psp => "PSP",
+            Self::Arcade => "Arcade",
         }
     }
     pub fn extensions(self) -> &'static [&'static str] {
@@ -256,6 +268,8 @@ impl System {
             Self::PlayStation => &["m3u", "chd", "cue", "pbp"],
             // A UMD (plain, CSO-compressed or a DVD CHD), or a PSN download's EBOOT.PBP.
             Self::Psp => &["iso", "cso", "chd", "pbp"],
+            // A set is its archive: nothing inside it is a game of its own ([`System::sets`]).
+            Self::Arcade => &[],
         }
     }
     /// The core that plays it by default.
@@ -283,6 +297,19 @@ impl System {
                 "PSXONPSP660.bin",
             ],
             _ => &[],
+        }
+    }
+    /// Whether its games are sets: archives (`.zip`, `.7z`) the core reads whole, named by the
+    /// set, so known by their folder alone.
+    pub fn sets(self) -> bool {
+        self == Self::Arcade
+    }
+    /// The list naming its sets for DSlot (`[games]`: set, title, model, year, maker), where its
+    /// core's package installs one.
+    pub fn games_list(self) -> Option<&'static str> {
+        match self {
+            Self::Arcade => Some("/usr/share/libretro-fbneo/arcade.tsv"),
+            _ => None,
         }
     }
     /// Whether its games are discs (never zipped, often several files).
@@ -319,6 +346,7 @@ impl System {
         path.extension().and_then(|e| e.to_str()).is_some_and(|e| {
             // Discs aren't played from inside a zip.
             (e.eq_ignore_ascii_case("zip") && !self.discs())
+                || (e.eq_ignore_ascii_case("7z") && self.sets())
                 || self.extensions().iter().any(|x| e.eq_ignore_ascii_case(x))
         })
     }
@@ -568,5 +596,21 @@ mod tests {
         assert_eq!(System::Psp.default_core(), "ppsspp");
         assert!(System::Psp.discs() && !System::Psp.takes(Path::new("Game.zip")));
         assert!(!System::Nes.takes(Path::new("music.nsf")));
+    }
+    #[test]
+    fn arcade_sets_by_their_folder() {
+        for name in ["/Roms/ARCADE/mslug.zip", "/Roms/ARCADE/sf2.7z"] {
+            assert_eq!(System::from_rom(Path::new(name)), Some(System::Arcade));
+        }
+        // Outside its folder a set says nothing of its board.
+        assert_eq!(System::from_rom(Path::new("mslug.zip")), None);
+        assert!(System::Arcade.takes(Path::new("sf2.7z")));
+        assert!(!System::Nes.takes(Path::new("sf2.7z")));
+        assert_eq!(System::Arcade.default_core(), "fbneo");
+        assert_eq!(
+            System::from_core(Path::new("/usr/lib/libretro/fbneo_libretro.so")),
+            Some(System::Arcade)
+        );
+        assert!(System::Arcade.games_list().is_some() && System::Snes.games_list().is_none());
     }
 }

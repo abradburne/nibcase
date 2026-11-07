@@ -1,0 +1,25 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Arcade: Neo Geo, CPS-1/2/3 and the other boards FBNeo plays. Non-commercial (FB Neo licence).
+pkgname=libretro-fbneo
+pkgver=20261106
+pkgrel=1
+pkgdesc='FinalBurn Neo (arcade) libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/FBNeo'
+license=(LicenseRef-FBNeo)
+depends=(gcc-libs)
+makedepends=(git python)
+source=("fbneo::git+https://github.com/libretro/FBNeo.git#commit=d15071abf14191eebb4a5d7c7147398edcf237c8"
+        arcade-list.py)
+sha256sums=('SKIP' 'SKIP')
+build() {
+    make -C "$srcdir/fbneo/src/burner/libretro" platform=unix \
+        CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55' -j"$(nproc)"
+    # The sets' names, years and makers for DSlot's shelf, from FinalBurn Neo's own DAT.
+    python "$srcdir/arcade-list.py" "$srcdir/fbneo/dats/FinalBurn Neo (ClrMame Pro XML, Arcade only).dat" > arcade.tsv
+}
+package() {
+    install -Dm755 "$srcdir/fbneo/src/burner/libretro/fbneo_libretro.so" "$pkgdir/usr/lib/libretro/fbneo_libretro.so"
+    install -Dm644 arcade.tsv "$pkgdir/usr/share/libretro-fbneo/arcade.tsv"
+    install -Dm644 "$srcdir/fbneo/src/license.txt" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}

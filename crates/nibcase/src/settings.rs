@@ -47,6 +47,8 @@ fn choice(key: &str, label: &str, values: &[(&str, &str)], default: &str) -> Def
 /// goes (320 x 240, 512 x 240, 640 x 480) on a 4:3 television, so it is fitted at the TV's
 /// shape; its pad is the player's choice. A PSP game's 480 x 272 is twice as large on the panel
 /// (960 x 544) by whole steps with square pixels, as every cartridge's is; its stick is the PSP's.
+/// An arcade board's picture is the shape of its cabinet's 4:3 monitor (3:4 for an upright one),
+/// whatever its pixels: Neo Geo's 320 x 224 and CPS's 384 x 224 alike, by whole steps.
 pub fn frontend(system: &str) -> Vec<Def> {
     let mut defs = vec![
         choice(
@@ -63,7 +65,11 @@ pub fn frontend(system: &str) -> Vec<Def> {
             "aspect",
             "Aspect",
             &[("square", "Square pixels"), ("tv", "Console TV shape")],
-            if system == "PS" { "tv" } else { "square" },
+            if matches!(system, "PS" | "ARCADE") {
+                "tv"
+            } else {
+                "square"
+            },
         ),
         choice(
             "timing",

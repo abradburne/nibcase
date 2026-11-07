@@ -309,6 +309,19 @@ fn description(
         );
     }
     doc.insert("systems".into(), V::Table(systems));
+    // The sets it plays, named for the shelf, where its package lists them (arcade).
+    let mut games = toml::Table::new();
+    for system in systems_played {
+        if let Some(list) = system
+            .games_list()
+            .filter(|l| std::path::Path::new(l).is_file())
+        {
+            games.insert(system.id().into(), V::String(list.into()));
+        }
+    }
+    if !games.is_empty() {
+        doc.insert("games".into(), V::Table(games));
+    }
     // Where it earns RetroAchievements: the systems it plays that were checked (Casual only).
     let earning: Vec<String> = systems_played
         .iter()

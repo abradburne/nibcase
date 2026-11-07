@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+- **Arcade**, through FinalBurn Neo (`nibcase-fbneo`, with `libretro-fbneo` built pinned at
+  d15071a; **non-commercial licence**): Neo Geo, CPS-1/2/3 and the other boards it plays, each
+  game a set (`.zip` or `.7z`, read whole by the core) in `Roms/ARCADE`; a board's BIOS set in
+  `BIOS/` or beside the games. The package lists every arcade set's title, year and maker from
+  the core's own DAT (`/usr/share/libretro-fbneo/arcade.tsv`), which the description gives DSlot
+  as `[games]`. Shown at the cabinet monitor's shape (Aspect: Console TV shape) by whole steps.
 - **PSP**, through PPSSPP (`nibcase-ppsspp`, with `libretro-ppsspp-nibos` built from PPSSPP's
   v1.20.4 tag for OpenGL ES with its ARM64 JIT): UMDs as `.iso`, `.cso` and `.chd`, PSN downloads
   as `EBOOT.PBP`, in `Roms/PSP`. No BIOS; the core's own files are linked into

@@ -18,6 +18,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | SG-1000 | — | registered | gameplay (no free homebrew found) |
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
 | PSP | owned games (CSO, ISO) | 1x, copy_image hidden: Ridge Racer 2's race 12.1 ms, God of War's title 13.5, LocoRoco 3.9, Burnout 4.8 | long play, a game's placard |
+| Arcade | MAME's free sets (mamedev.org): Robby Roto, Gridlee, Teeter Torture and 5 more | the core 4.6-7.3 ms average, 11 at worst; no frame over 16.7 | Neo Geo and CPS (BIOS sets, owned games), the button layout, a placard |
 
 ## The first SNES release, 2026-10-20
 
@@ -415,3 +416,24 @@ every frame, so Panfrost's bounds cache misses, and the scan reads them one at a
 write-combined mapping. The patch copies the draw's indices out with one memcpy and scans the
 copy. From the race's resume state, three runs each, frames 600-1200: 15.1, 14.4, 15.0 ms without
 it; 12.3, 12.4, 12.5 ms with it, every frame then on the panel's refresh (16.68 ms).
+
+## Arcade through FinalBurn Neo (2026-11-07)
+
+- **Sets:** MAME's free non-commercial sets from mamedev.org/roms that FinalBurn Neo's DAT lists
+  (alienar, circus, crash, fax, gridlee, hardhat, ripcord, robby, robotbwl, sidetrac, spectar,
+  targ, teetert), downloaded for testing only, never into this repository.
+- **In the VM** (`nibcase-test --bench ... --system ARCADE --frames 1800`): eight played at
+  0.1-0.4 ms a frame; `--state-check` continuation matched for gridlee, robby, teetert, hardhat
+  and circus. Alien Arena's free set lacks `sg.snd`, which FinalBurn Neo's set wants: refused,
+  a set mismatch (the core names the missing file).
+- **On the DS+** (the fbneo-branch nibcase from `/tmp`, the core extracted beside it, DSlot
+  stopped for the runs and started after): Robby Roto (352 x 240) the core 6.7 ms on average,
+  Gridlee (256 x 240) 5.0, Teeter Torture (256 x 256) 7.2; 11 ms at worst, no frame over 16.7.
+  The picture is at the cabinet's 4:3 by whole steps of height (Robby 960 x 720). Gridlee's
+  EEPROM is written to the game's saves folder (`fbneo/gridlee.fs`).
+- **DSlot** (headless, `--shot`): the Arcade page lists the 13 sets by their titles, year and
+  maker from `arcade.tsv`; `neogeo.zip` beside them isn't shown.
+- **Not checked yet:** Neo Geo and CPS games (they need BIOS sets and games the player owns),
+  the six-button layout, vertical games on the panel, a RetroAchievements placard, the options
+  in DSlot's settings (FinalBurn Neo declares its options only once a game is loaded, so the
+  description has none).

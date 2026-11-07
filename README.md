@@ -22,6 +22,7 @@ licences.
 | Game & Watch | `Roms/GW` | `.mgw` | gw-libretro | |
 | PlayStation | `Roms/PS` | `.chd` `.cue` `.pbp` `.m3u` | PCSX ReARMed | `scph5501.bin` etc., optional |
 | PSP | `Roms/PSP` | `.iso` `.cso` `.chd` `.pbp` | PPSSPP (OpenGL ES) | |
+| Arcade | `Roms/ARCADE` | a set: `.zip` `.7z` (`mslug.zip`) | FinalBurn Neo (**non-commercial licence**) | a board's BIOS set (`neogeo.zip`), where its games need one |
 
 Cartridges may also be a `.zip` holding one game; discs never are.
 [RetroAchievements](docs/retroachievements.md) (Casual) work for SNES, NES, Mega Drive, Game Gear,
@@ -36,7 +37,7 @@ cards, controller and BIOS.
 Install `nibcase` and the integration for each core you want, `nibcase-<core>`
 (`nibcase-snes9x`, `nibcase-nestopia`, `nibcase-blastem`, `nibcase-gearsystem`, `nibcase-handy`,
 `nibcase-beetle-pce-fast`, `nibcase-beetle-ngp`, `nibcase-beetle-wswan`, `nibcase-gw`,
-`nibcase-pcsx-rearmed`, `nibcase-ppsspp`), which pulls in the core's own package. Installing, upgrading or removing
+`nibcase-pcsx-rearmed`, `nibcase-ppsspp`, `nibcase-fbneo`), which pulls in the core's own package. Installing, upgrading or removing
 one runs a package hook that asks the core for its options and writes or removes its DSlot
 description; DSlot shows the system's page once it has games. Your own descriptions in DSlot's
 folders still win. No game, BIOS or core binary is part of nibcase.

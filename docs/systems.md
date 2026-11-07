@@ -27,18 +27,20 @@ game; disc systems never do.
 | Game & Watch | `GW` | `.mgw` | gw-libretro | Zlib | `libretro-gw`, pinned 91d599b |
 | PlayStation | `PS` | `.chd` `.cue` (+ tracks) `.pbp` `.m3u` | PCSX ReARMed | GPL-2.0 | `libretro-pcsx-rearmed-nibos`, pinned c881679 |
 | PSP | `PSP` | `.iso` `.cso` `.chd` `.pbp` | PPSSPP | GPL-2.0-or-later | `libretro-ppsspp-nibos`, release v1.20.4 |
+| Arcade | `ARCADE` | a set: `.zip` `.7z` | FinalBurn Neo | **Non-commercial** (FB Neo licence) | `libretro-fbneo`, pinned d15071a |
 
 Each core has a small package of nibcase's, `nibcase-<core>` (`nibcase-snes9x`,
 `nibcase-nestopia`, `nibcase-blastem`, `nibcase-gearsystem`, `nibcase-handy`, `nibcase-gw`,
 `nibcase-beetle-pce-fast`, `nibcase-beetle-ngp`, `nibcase-beetle-wswan`,
-`nibcase-pcsx-rearmed`, `nibcase-ppsspp`), which depends on the core's and registers it with DSlot: an alpm hook
+`nibcase-pcsx-rearmed`, `nibcase-ppsspp`, `nibcase-fbneo`), which depends on the core's and registers it with DSlot: an alpm hook
 runs `nibcase-test --sync`, which asks the installed core for its options and writes
 `/usr/share/dslot/emulators/nibcase-<core>.toml`, with one `[systems]` entry for each system the
 core plays. Pinned cores are built from `packaging/cores/<core>/PKGBUILD`. The frontend never
 contains a core.
 
-**Licences.** nibcase is MIT; each core keeps its own. **Snes9x is the only
-non-commercial core**: it must never be part of any commercial distribution. Every other core
+**Licences.** nibcase is MIT; each core keeps its own. **Snes9x and FinalBurn Neo
+are non-commercial**: neither may be part of any commercial distribution, and FinalBurn Neo's
+licence also forbids asking for donations for a project that uses its source. Every other core
 listed is free (GPL-2.0, GPL-3.0 or Zlib) and may be distributed with the usual obligations
 (the core's source for the GPL ones).
 
