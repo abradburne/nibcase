@@ -24,6 +24,10 @@
   from it (`systems::CORE_ENV`, `MESA_EXTENSION_OVERRIDE`, set before the first GL context, by the
   player and nibcase-test), and the core blits on the GPU: a Ridge Racer 2 race 19.6 to 12.1 ms a
   frame, God of War's title 19.3 to 13.5, the picture the same. Found with perf on the DS+.
+- **Leaving without C++'s static destructors:** once the game is saved and the core unloaded, the
+  player ends with `_exit`. PPSSPP keeps a `std::thread` among its statics that can still be
+  joinable at exit (Burnout Dominator's, once on the DS+); destroying it aborted the process after
+  everything was saved, and DSlot said the game had crashed.
 - **Resuming a core that boots on a thread of its own** (PPSSPP): it has no states just after
   the load, and the game didn't resume. The resume now waits after each frame until the core has
   states (ten seconds at most, then a notice), and quitting before then doesn't write over it.

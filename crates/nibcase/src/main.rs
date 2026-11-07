@@ -145,10 +145,21 @@ impl Args {
     }
 }
 fn main() {
-    if let Err(e) = run() {
-        eprintln!("nibcase: {e}");
-        std::process::exit(1);
-    }
+    let code = match run() {
+        Ok(()) => 0,
+        Err(e) => {
+            eprintln!("nibcase: {e}");
+            1
+        }
+    };
+    // Everything is saved, flushed and unloaded by now. Leave without running C++'s static
+    // destructors: PPSSPP keeps a std::thread among them that may still be joinable (Burnout
+    // Dominator's), and destroying it aborts the process, which DSlot reports as a crash.
+    use std::io::Write;
+    let _ = std::io::stdout().flush();
+    let _ = std::io::stderr().flush();
+    // SAFETY: _exit ends the process at once; nothing of this program is left to run.
+    unsafe { libc::_exit(code) }
 }
 fn run() -> Result<(), String> {
     let Some(mut args) = Args::parse(std::env::args().skip(1))? else {
