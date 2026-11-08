@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0
 
 - **zip 9.4** (from 2.x), here and through nibkit 0.4.1's nib-cheevos, for the zip crate's
   advisories (zip cloaking, the AES HMAC check at an early end of file, unbounded symlink

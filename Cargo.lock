@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "nibcase"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "nib-cheevos",
@@ -638,7 +638,7 @@ dependencies = [
 
 [[package]]
 name = "nibcase-libretro"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "libloading",
@@ -648,7 +648,7 @@ dependencies = [
 
 [[package]]
 name = "nibcase-test"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "libc",
  "nibcase-libretro",
