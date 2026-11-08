@@ -7,7 +7,7 @@ rust-version.workspace = true
 
 [dependencies]
 libloading = "0.8.9"
-zip = { version = "2.4.2", default-features = false, features = ["deflate-miniz"] }
+zip = { version = "9.4.2", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [features]
 # The test core and its games, for tests (this crate's and the player's).

@@ -144,7 +144,8 @@ pub fn peek(path: &Path, extensions: &[&str]) -> Result<Vec<u8>, String> {
         let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
         for index in 0..zip.len() {
             let entry = zip.by_index(index).map_err(|e| e.to_string())?;
-            let ext = Path::new(entry.name())
+            let name = entry.name().map_err(|e| e.to_string())?.into_owned();
+            let ext = Path::new(&name)
                 .extension()
                 .and_then(|e| e.to_str())
                 .unwrap_or("")
@@ -634,7 +635,8 @@ impl Core {
             let mut found = false;
             for index in 0..zip.len() {
                 let entry = zip.by_index(index).map_err(|e| e.to_string())?;
-                let ext = Path::new(entry.name())
+                let name = entry.name().map_err(|e| e.to_string())?.into_owned();
+                let ext = Path::new(&name)
                     .extension()
                     .and_then(|e| e.to_str())
                     .unwrap_or("")
