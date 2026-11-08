@@ -17,6 +17,11 @@
   the core's own DAT, and its board's family from its `gamelist.txt` (Neo Geo, CPS-1, ...)
   (`/usr/share/libretro-fbneo/arcade.tsv`), which the description gives DSlot as `[games]`:
   DSlot's Arcade page has a section for each board. Shown at the cabinet monitor's shape (Aspect: Console TV shape) by whole steps.
+- **The volume and brightness indicator** (nibkit 0.4.0's `menu::level`): over every core's
+  game, with or without RetroAchievements, when the volume keys or Menu + volume change a
+  level, nibkit's indicator shows at the bottom right of the top screen (a speaker or a sun, a
+  bar, the percent) and fades 1.5 s after the last press; a toast in that corner moves up
+  above it.
 - **PSP**, through PPSSPP (`nibcase-ppsspp`, with `libretro-ppsspp-nibos` built from PPSSPP's
   v1.20.4 tag for OpenGL ES with its ARM64 JIT): UMDs as `.iso`, `.cso` and `.chd`, PSN downloads
   as `EBOOT.PBP`, in `Roms/PSP`. No BIOS; the core's own files are linked into
