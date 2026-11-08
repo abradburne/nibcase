@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- `NIBCASE_DEBUG=frames` times presenting apart from drawing: `drawing` is the work of drawing
+  both panels, `presenting` the wait for their refresh. With vsync the wait took a frame's
+  spare time and was counted as drawing, so a quick frame's drawing seemed to jump from about
+  1.6 ms to 11.5 ms when the loop's wait moved from the sound to the refresh.
+
 ## 0.3.0
 
 - **zip 9.4** (from 2.x), here and through nibkit 0.4.1's nib-cheevos, for the zip crate's

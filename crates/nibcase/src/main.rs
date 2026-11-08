@@ -334,16 +334,18 @@ fn run() -> Result<(), String> {
     result.and(ram).and(state).and(flush)
 }
 /// Over the last two seconds' frames: the core's time a frame (running it, RetroAchievements, the
-/// sound), its mean and worst, and the whole frame's work with drawing and presenting (which
-/// waits for the panel's refresh, so it is about a refresh even when the core is quick).
+/// sound), its mean and worst; drawing; presenting, apart (with vsync it waits for the panels'
+/// refresh, so a quick frame's wait is long, not its work); and the whole frame.
 #[derive(Default)]
 struct FrameTiming {
     frames: u32,
     core: Duration,
     worst: Duration,
     whole: Duration,
-    /// Drawing both panels and presenting them, and of that the main thread's CPU time.
+    /// Drawing both panels; presenting them (waiting for their refresh, mostly); and the main
+    /// thread's CPU time over the two.
     draw: Duration,
+    present: Duration,
     draw_cpu: Duration,
     /// Frames whose core time was over a refresh (16.7 ms).
     over: u32,
@@ -351,8 +353,16 @@ struct FrameTiming {
 /// Frames a line of the log covers: two seconds.
 const TIMING_FRAMES: u32 = 120;
 impl FrameTiming {
-    fn frame(&mut self, core: Duration, draw: Duration, draw_cpu: Duration, whole: Duration) {
+    fn frame(
+        &mut self,
+        core: Duration,
+        draw: Duration,
+        draw_cpu: Duration,
+        present: Duration,
+        whole: Duration,
+    ) {
         self.frames += 1;
+        self.present += present;
         self.draw += draw;
         self.draw_cpu += draw_cpu;
         self.core += core;
@@ -363,12 +373,13 @@ impl FrameTiming {
             let ms = |d: Duration| d.as_secs_f64() * 1000.0;
             let n = f64::from(TIMING_FRAMES);
             eprintln!(
-                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; drawing {:.2} ({:.2} of it the CPU's); the whole frame {:.2}",
+                "nibcase: frames: the core {:.2} ms on average, {:.2} at worst, {} of {} over 16.7; drawing {:.2}, presenting {:.2} (the CPU's {:.2} of the two); the whole frame {:.2}",
                 ms(self.core) / n,
                 ms(self.worst),
                 self.over,
                 TIMING_FRAMES,
                 ms(self.draw) / n,
+                ms(self.present) / n,
                 ms(self.draw_cpu) / n,
                 ms(self.whole) / n
             );
@@ -1098,6 +1109,7 @@ fn player(
         let ran = running.elapsed();
         let drawing = Instant::now();
         let drawing_cpu = thread_cpu();
+        s.take_presenting();
         // A GPU core's frame drawn from the GPU where it can be; otherwise (and for every
         // software core) the frame, read back.
         let mut drawn = false;
@@ -1200,7 +1212,8 @@ fn player(
                 )?;
             }
         }
-        let drew = drawing.elapsed();
+        let presented = s.take_presenting();
+        let drew = drawing.elapsed().saturating_sub(presented);
         let drew_cpu = thread_cpu().saturating_sub(drawing_cpu);
         for message in core.messages() {
             eprintln!("nibcase: {message}");
@@ -1219,7 +1232,7 @@ fn player(
         next += period;
         let after = Instant::now();
         if let Some(t) = timing.as_mut() {
-            t.frame(ran, drew, drew_cpu, after - woke);
+            t.frame(ran, drew, drew_cpu, presented, after - woke);
         }
         if next > after {
             std::thread::sleep(next - after);

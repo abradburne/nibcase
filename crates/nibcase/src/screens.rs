@@ -11,7 +11,7 @@ use sdl2::rect::Rect;
 use sdl2::render::{BlendMode, ScaleMode, Texture, TextureCreator, WindowCanvas};
 use sdl2::video::WindowContext;
 use std::path::{Path, PathBuf};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[derive(Clone, Copy)]
 struct View {
@@ -67,6 +67,15 @@ pub struct Screens {
     /// A texture of the top panel's renderer a GPU core's frame is copied into on the GPU
     /// (`play_hw`).
     hw: Option<Hw>,
+    /// Time spent presenting the panels (waiting for their refresh, with vsync) since
+    /// [`Screens::take_presenting`] last asked.
+    presenting: Duration,
+}
+/// Presents a panel, adding the time it took (its wait for the refresh) to `spent`.
+fn swap(c: &mut WindowCanvas, spent: &mut Duration) {
+    let at = Instant::now();
+    c.present();
+    *spent += at.elapsed();
 }
 /// The top panel's texture a GPU core's frames are copied into, the size of its framebuffer.
 struct Hw {
@@ -302,6 +311,7 @@ impl Screens {
             level: nibkit::menu::level::Indicator::new(),
             level_overlay: Overlay::default(),
             hw: None,
+            presenting: Duration::ZERO,
         })
     }
     pub fn set_sync(&mut self, on: bool) {
@@ -341,6 +351,10 @@ impl Screens {
             c.clear();
         }
     }
+    /// The time spent presenting since it was last asked (`NIBCASE_DEBUG=frames`).
+    pub fn take_presenting(&mut self) -> Duration {
+        std::mem::take(&mut self.presenting)
+    }
     pub fn capture_next(&mut self, path: PathBuf) {
         self.shot = Some(path);
         // A panel drawn once and left shows its picture, but its back buffer, which a
@@ -352,7 +366,7 @@ impl Screens {
             self.screenshot(&path)?;
         }
         for c in &mut self.canvases {
-            c.present();
+            swap(c, &mut self.presenting);
         }
         Ok(())
     }
@@ -519,14 +533,14 @@ impl Screens {
             }
             // A screenshot reads both panels before presenting them, below.
             if self.shot.is_none() {
-                c.present();
+                swap(c, &mut self.presenting);
             }
             self.bottom_blank = true;
         }
         if self.shot.is_some() {
             self.present()
         } else {
-            self.canvases[self.top.canvas].present();
+            swap(&mut self.canvases[self.top.canvas], &mut self.presenting);
             Ok(())
         }
     }
@@ -577,8 +591,8 @@ impl Screens {
         if self.shot.is_some() || self.top.canvas == self.bottom.canvas {
             self.present()
         } else {
-            self.canvases[self.bottom.canvas].present();
-            self.canvases[self.top.canvas].present();
+            swap(&mut self.canvases[self.bottom.canvas], &mut self.presenting);
+            swap(&mut self.canvases[self.top.canvas], &mut self.presenting);
             Ok(())
         }
     }
