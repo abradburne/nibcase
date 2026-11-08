@@ -10,10 +10,13 @@ licences.
 | SNES | `Roms/SFC` | `.sfc` `.smc` | Snes9x (**non-commercial licence**) | |
 | NES | `Roms/FC` | `.nes` `.unf` `.unif` | Nestopia UE | |
 | Famicom Disk System | `Roms/FDS` | `.fds` | Nestopia UE | `disksys.rom`, required |
-| Mega Drive | `Roms/MD` | `.md` `.gen` `.bin` `.smd` | BlastEm | |
-| Game Gear | `Roms/GG` | `.gg` | Gearsystem | |
-| Master System | `Roms/SMS` | `.sms` | Gearsystem | |
-| SG-1000 | `Roms/SG1000` | `.sg` | Gearsystem | |
+| Mega Drive | `Roms/MD` | `.md` `.gen` `.bin` `.smd` | PicoDrive (**non-commercial licence**), or BlastEm | |
+| Mega-CD / Sega CD | `Roms/SEGACD` | `.chd` `.cue` `.iso` `.m3u` | PicoDrive (**non-commercial licence**) | `bios_CD_U.bin`, `_E` or `_J` (the discs' region), required |
+| 32X | `Roms/32X` | `.32x` | PicoDrive (**non-commercial licence**) | |
+| Pico | `Roms/PICO` | `.md` `.bin` | PicoDrive (**non-commercial licence**) | |
+| Game Gear | `Roms/GG` | `.gg` | Gearsystem, or PicoDrive | |
+| Master System | `Roms/SMS` | `.sms` | Gearsystem, or PicoDrive | |
+| SG-1000 | `Roms/SG1000` | `.sg` | Gearsystem, or PicoDrive | |
 | Atari Lynx | `Roms/LYNX` | `.lnx` | Handy | `lynxboot.img`, required |
 | PC Engine | `Roms/PCE` | `.pce` | Beetle PCE Fast | |
 | PC Engine CD | `Roms/PCECD` | `.cue` `.chd` | Beetle PCE Fast | `syscard3.pce`, required |

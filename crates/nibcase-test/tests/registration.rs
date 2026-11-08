@@ -98,6 +98,7 @@ fn generate_validate_update_and_remove_only_owned_descriptions() {
         ("pcsx_rearmed", "PS"),
         ("ppsspp", "PSP"),
         ("fbneo", "ARCADE"),
+        ("picodrive", "SEGACD"),
     ] {
         let core_library = cores.join(format!("{name}_libretro.so"));
         std::fs::copy(&library, &core_library).unwrap();

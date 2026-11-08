@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+- **Mega-CD, 32X and Pico**, through PicoDrive (`nibcase-picodrive`, with `libretro-picodrive`
+  built pinned at 1890c29, its SH-2 recompiler on; **non-commercial licence**): Mega-CD discs
+  (`.chd`, `.cue`, `.iso`, `.m3u`) in `Roms/SEGACD`, with the player's BIOS for the discs' region
+  (`bios_CD_U.bin`, `_E` or `_J`), which nibcase names when none is there; 32X carts (`.32x`) in
+  `Roms/32X`; Pico carts (Mega Drive dumps) in `Roms/PICO`. PicoDrive is the **Mega Drive's default** now
+  (its priority 90, BlastEm's 80: about half BlastEm's time a frame on the RG DS+, BlastEm now and
+  then over a frame), and the second choice for the Master System, Game Gear and SG-1000, below
+  Gearsystem's 100. The player without `--core` picks the same core DSlot does.
 - **Arcade**, through FinalBurn Neo (`nibcase-fbneo`, with `libretro-fbneo` built pinned at
   d15071a; **non-commercial licence**): Neo Geo, CPS-1/2/3 and the other boards it plays, each
   game a set (`.zip` or `.7z`, read whole by the core) in `Roms/ARCADE`; a board's BIOS set in

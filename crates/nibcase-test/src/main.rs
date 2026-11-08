@@ -286,7 +286,12 @@ fn description(
         "name".into(),
         V::String(format!("{} (nibcase)", core.info().name)),
     );
-    doc.insert("priority".into(), V::Integer(100));
+    let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+    let core_name = stem.strip_suffix("_libretro").unwrap_or(stem);
+    doc.insert(
+        "priority".into(),
+        V::Integer(nibcase_libretro::systems::priority(core_name)),
+    );
     doc.insert(
         "requires".into(),
         array(vec![path.to_string_lossy().into_owned()]),

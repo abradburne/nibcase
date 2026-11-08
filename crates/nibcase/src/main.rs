@@ -205,6 +205,19 @@ fn run() -> Result<(), String> {
             &args.system,
         )?,
     };
+    // A system that can't start without its BIOS (the Mega-CD's, one a region) says which to
+    // add, rather than leave the core to fail at load.
+    if let Some(system) = System::from_id(&args.system) {
+        let needed = system.bios_one_of();
+        if !needed.is_empty() && !needed.iter().any(|f| bios.join(f).is_file()) {
+            return Err(format!(
+                "no {} BIOS in {}: add the one for the disc's region ({})",
+                system.label(),
+                bios.display(),
+                needed.join(", ")
+            ));
+        }
+    }
     let mut prefs = Preferences::new(&args.core, &args.system, &name, args.options.clone());
     let mut core = Core::open(Config {
         core: args.core.clone(),

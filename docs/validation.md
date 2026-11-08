@@ -19,6 +19,7 @@ the details. Costs are the core's per frame on the RG DS+ (p99), headless.
 | PlayStation | an owned Gran Turismo, HLE BIOS | boots to car select; p50 2.1 ms, p99 14.7 ms | a race, the spikes' cause, multi-disc, DualShock, a real BIOS |
 | PSP | owned games (CSO, ISO) | 1x, copy_image hidden: Ridge Racer 2's race 12.1 ms, God of War's title 13.5, LocoRoco 3.9, Burnout 4.8 | long play, a game's placard |
 | Arcade | MAME's free sets (mamedev.org): Robby Roto, Gridlee, Teeter Torture and 5 more | the core 4.6-7.3 ms average, 11 at worst; no frame over 16.7 | Neo Geo and CPS (BIOS sets, owned games), the button layout, a placard |
+| Mega-CD, 32X, Pico (PicoDrive) | Sonic the Hedgehog and Stalactites through PicoDrive (the Mega Drive and Master System paths); no Mega-CD, 32X or Pico game yet | the core 5.5 ms on average on the DS+ (Sonic; BlastEm 9.7), 4.2 (Stalactites); no frame over 16.7 | a Mega-CD disc with its BIOS, a 32X and a Pico game, a placard through PicoDrive |
 
 ## The first SNES release, 2026-10-20
 
@@ -437,3 +438,41 @@ it; 12.3, 12.4, 12.5 ms with it, every frame then on the panel's refresh (16.68 
   the six-button layout, vertical games on the panel, a RetroAchievements placard, the options
   in DSlot's settings (FinalBurn Neo declares its options only once a game is loaded, so the
   description has none).
+
+## Sega's systems through PicoDrive (2026-11-07)
+
+- **Core:** `libretro-picodrive`, built pinned at 1890c29 (PicoDrive 2.05) with
+  `platform=unix -mcpu=cortex-a55`; the build's flags include `-DDRC_SH2` (the 32X's SH-2
+  recompiler). Its description is written with priority 90, so blastem and gearsystem stay the
+  Mega Drive's, Master System's, Game Gear's and SG-1000's defaults.
+- **In the VM** (`nibcase-test --bench ... --frames 1800`): Sonic the Hedgehog (`MD`, 320 x 224)
+  p50 0.20 ms, p99 0.30; Stalactites (`SMS`, homebrew, 256 x 192) p50 0.08 ms, p99 0.10.
+  `--state-check`: Stalactites' video and audio continuation match; Sonic's video matches and
+  its audio doesn't from the first sample (the count does, 14,700 of 14,700), as BlastEm's
+  doesn't always: a resumed game's first moment of sound may differ.
+- **On the DS+** (the picodrive-branch nibcase as `/usr/local/bin/nibcase-arcade`, DSlot stopped
+  for the runs and started after; `NIBCASE_DEBUG=frames`, 25 s a game): Sonic the Hedgehog through
+  PicoDrive the core 5.5 ms on average, 8.3 at worst, drawing 1.6; through BlastEm, for
+  comparison, the core 9.7 ms on average, 16.9 at worst (1 frame of 360 over 16.7), drawing 6.8.
+  Stalactites (SMS) through PicoDrive the core 4.2 ms on average, 6.5 at worst. The Mega-CD
+  message below shows there too, and DSlot made `Roms/SEGACD`, `Roms/32X` and `Roms/PICO` with
+  their READMEs (the Mega-CD's naming the three BIOS files).
+- **8-bit, Gearsystem against PicoDrive on the DS+** (the same way, 25 s a game, the core's
+  time a frame on average / at worst; no frame over 16.7 on either):
+
+  | Game | Gearsystem | PicoDrive |
+  |---|---|---|
+  | Sonic the Hedgehog - Triple Trouble (GG) | 6.1 / 8.5 ms | 3.7 / 5.6 ms |
+  | GG Aleste (GG) | 5.0 / 7.5 ms | 3.4 / 4.6 ms |
+  | Streets of Rage 2 (GG) | 5.2 / 8.0 ms | 3.6 / 5.7 ms |
+  | Stalactites (SMS, homebrew) | 5.2 / 7.9 ms | 4.3 / 5.8 ms |
+
+  Gearsystem has half the frame to spare at worst, so it stays the 8-bit systems' default (the
+  more accurate core there); PicoDrive is the Emulator row's other choice. Gunstar Heroes (GG)
+  was refused by both, "corrupt deflate stream": the zip on that card is damaged (Python's
+  zipfile can't read it either). No SG-1000 game was at hand.
+- **Mega-CD without a BIOS:** the player stops before loading with "no Mega-CD BIOS in
+  `<dir>`: add the one for the disc's region (bios_CD_U.bin, bios_CD_E.bin, bios_CD_J.bin)".
+- **Not yet checked:** a Mega-CD disc (no BIOS here), a 32X game and a Pico game;
+  RetroAchievements through PicoDrive (its description declares MD and GG, which were
+  checked through BlastEm and Gearsystem, not PicoDrive).

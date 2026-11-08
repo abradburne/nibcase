@@ -36,6 +36,15 @@ pub enum System {
     /// (`mslug.zip`). A board's BIOS set (`neogeo.zip`) is the player's own, in `BIOS/` or beside
     /// the games.
     Arcade,
+    /// Sega's Mega-CD (Sega CD): discs as `.chd`, `.cue` with its tracks, `.iso`, or an `.m3u`
+    /// listing a game's discs. Its folder is `SEGACD`. The BIOS is the player's own, for the
+    /// disc's region ([`System::bios_one_of`]).
+    MegaCd,
+    /// Sega's 32X: `.32x` carts, played on a Mega Drive. Its folder is `32X`.
+    Sega32x,
+    /// Sega's Pico, the children's console: its carts are Mega Drive dumps (`.md`), so known by
+    /// their folder, `PICO`.
+    Pico,
 }
 /// A core nibcase registers with DSlot: `/usr/lib/libretro/<name>_libretro.so`, described as
 /// `nibcase-<name>`, playing these systems (the first is the one it is inferred for).
@@ -93,7 +102,34 @@ pub const CORES: &[CoreSpec] = &[
         name: "fbneo",
         systems: &[System::Arcade],
     },
+    // The Mega Drive's default, over blastem (half the time a frame on the RG DS+); second to
+    // gearsystem for the 8-bit systems, which it has time to spare for and plays more
+    // accurately. The only core for the Mega-CD, 32X and Pico ([`priority`]).
+    CoreSpec {
+        name: "picodrive",
+        systems: &[
+            System::MegaDrive,
+            System::MegaCd,
+            System::Sega32x,
+            System::Pico,
+            System::MasterSystem,
+            System::GameGear,
+            System::Sg1000,
+        ],
+    },
 ];
+/// Its description's priority: DSlot plays a system in the installed emulator with the highest,
+/// and so does the player without `--core` ([`System::default_core`]). 100; PicoDrive 90, below
+/// gearsystem's for the 8-bit systems; blastem 80, below PicoDrive's for the Mega Drive: on the
+/// RG DS+ blastem's Sonic takes 9.7 ms a frame and now and then more than 16.7, PicoDrive's 5.5
+/// (docs/validation.md).
+pub fn priority(core: &str) -> i64 {
+    match core {
+        "picodrive" => 90,
+        "blastem" => 80,
+        _ => 100,
+    }
+}
 /// Core options whose default on the RG DS+ isn't the core's own, by core: (key, value). Each is
 /// measured on the device (docs/validation.md); a value the core doesn't offer is ignored.
 pub const HANDHELD_DEFAULTS: &[(&str, &[(&str, &str)])] = &[(
@@ -186,7 +222,7 @@ pub fn handheld_default(core: &str, key: &str) -> Option<&'static str> {
         .map(|(_, v)| *v)
 }
 impl System {
-    pub const ALL: [Self; 16] = [
+    pub const ALL: [Self; 19] = [
         Self::Snes,
         Self::Nes,
         Self::MegaDrive,
@@ -203,6 +239,9 @@ impl System {
         Self::PlayStation,
         Self::Psp,
         Self::Arcade,
+        Self::MegaCd,
+        Self::Sega32x,
+        Self::Pico,
     ];
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|s| s.id() == id)
@@ -226,6 +265,9 @@ impl System {
             Self::PlayStation => "PS",
             Self::Psp => "PSP",
             Self::Arcade => "ARCADE",
+            Self::MegaCd => "SEGACD",
+            Self::Sega32x => "32X",
+            Self::Pico => "PICO",
         }
     }
     pub fn label(self) -> &'static str {
@@ -246,6 +288,9 @@ impl System {
             Self::PlayStation => "PlayStation",
             Self::Psp => "PSP",
             Self::Arcade => "Arcade",
+            Self::MegaCd => "Mega-CD",
+            Self::Sega32x => "32X",
+            Self::Pico => "Pico",
         }
     }
     pub fn extensions(self) -> &'static [&'static str] {
@@ -270,13 +315,21 @@ impl System {
             Self::Psp => &["iso", "cso", "chd", "pbp"],
             // A set is its archive: nothing inside it is a game of its own ([`System::sets`]).
             Self::Arcade => &[],
+            // .chd and .cue are the other disc systems' too: the folder decides.
+            Self::MegaCd => &["m3u", "chd", "cue", "iso"],
+            Self::Sega32x => &["32x"],
+            // A Pico cart is a Mega Drive dump: its folder decides.
+            Self::Pico => &["md", "bin"],
         }
     }
-    /// The core that plays it by default.
+    /// The core that plays it by default: of those that play it, the one with the highest
+    /// [`priority`], as in DSlot; the first listed of equals.
     pub fn default_core(self) -> &'static str {
         CORES
             .iter()
-            .find(|c| c.systems.contains(&self))
+            .filter(|c| c.systems.contains(&self))
+            .rev()
+            .max_by_key(|c| priority(c.name))
             .map(|c| c.name)
             .expect("every system has a core")
     }
@@ -314,7 +367,10 @@ impl System {
     }
     /// Whether its games are discs (never zipped, often several files).
     pub fn discs(self) -> bool {
-        matches!(self, Self::PcEngineCd | Self::PlayStation | Self::Psp)
+        matches!(
+            self,
+            Self::PcEngineCd | Self::PlayStation | Self::Psp | Self::MegaCd
+        )
     }
     /// Whether its games earn RetroAchievements in nibcase: DSlot passes the sign-in to a core
     /// only for the systems its description declares (`[achievements]`), and these are the ones
@@ -340,6 +396,14 @@ impl System {
             Self::PcEngineCd => Some("syscard3.pce"),
             Self::DiskSystem => Some("disksys.rom"),
             _ => None,
+        }
+    }
+    /// The BIOS files it can't start without, one of which must be in `BIOS/`: the Mega-CD's,
+    /// one a region, as PicoDrive's libretro page names them (US, Europe, Japan).
+    pub fn bios_one_of(self) -> &'static [&'static str] {
+        match self {
+            Self::MegaCd => &["bios_CD_U.bin", "bios_CD_E.bin", "bios_CD_J.bin"],
+            _ => &[],
         }
     }
     pub fn takes(self, path: &Path) -> bool {
@@ -612,5 +676,35 @@ mod tests {
             Some(System::Arcade)
         );
         assert!(System::Arcade.games_list().is_some() && System::Snes.games_list().is_none());
+    }
+    #[test]
+    fn picodrive_plays_the_mega_drive_and_is_second_for_the_8_bit_systems() {
+        let picodrive = Path::new("/usr/lib/libretro/picodrive_libretro.so");
+        assert_eq!(System::from_core(picodrive), Some(System::MegaDrive));
+        for system in [System::MegaCd, System::Sega32x, System::Pico] {
+            assert_eq!(system.default_core(), "picodrive");
+            assert!(System::of_core(picodrive).contains(&system));
+        }
+        // The Mega Drive's default; gearsystem stays the 8-bit systems'.
+        assert_eq!(System::MegaDrive.default_core(), "picodrive");
+        assert!(System::of_core(Path::new("blastem_libretro.so")).contains(&System::MegaDrive));
+        for system in [System::MasterSystem, System::GameGear, System::Sg1000] {
+            assert_eq!(system.default_core(), "gearsystem");
+        }
+        for (name, system) in [
+            ("Coast.32x", System::Sega32x),
+            ("/Roms/32X/Coast.zip", System::Sega32x),
+            ("/Roms/SEGACD/Coast.chd", System::MegaCd),
+            ("/Roms/SEGACD/Coast (Disc 1).cue", System::MegaCd),
+            ("/Roms/PICO/Coast.md", System::Pico),
+            // Outside its folder a Pico cart is a Mega Drive cart.
+            ("Coast.md", System::MegaDrive),
+        ] {
+            assert_eq!(System::from_rom(Path::new(name)), Some(system), "{name}");
+        }
+        assert!(System::MegaCd.discs() && !System::MegaCd.takes(Path::new("Coast.zip")));
+        assert!(System::Sega32x.takes(Path::new("Coast.zip")));
+        assert_eq!(System::MegaCd.bios_one_of().len(), 3);
+        assert!(System::MegaDrive.bios_one_of().is_empty());
     }
 }

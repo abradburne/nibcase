@@ -15,7 +15,10 @@ game; disc systems never do.
 | SNES | `SFC` | `.sfc` `.smc` | Snes9x | **Non-commercial** (Snes9x licence) | `libretro-snes9x` (Arch Linux ARM) |
 | NES | `FC` | `.nes` `.unf` `.unif` | Nestopia UE | GPL-2.0 | `libretro-nestopia` (Arch Linux ARM) |
 | Famicom Disk System | `FDS` | `.fds` | Nestopia UE | GPL-2.0 | the same |
-| Mega Drive | `MD` | `.md` `.gen` `.bin` `.smd` | BlastEm | GPL-3.0 | `libretro-blastem` (Arch Linux ARM) |
+| Mega Drive | `MD` | `.md` `.gen` `.bin` `.smd` | PicoDrive (BlastEm the other choice) | **Non-commercial** (PicoDrive licence); BlastEm GPL-3.0 | `libretro-picodrive`, pinned 1890c29; `libretro-blastem` (Arch Linux ARM) |
+| Mega-CD / Sega CD | `SEGACD` | `.chd` `.cue` (+ its tracks) `.iso` `.m3u` | PicoDrive | **Non-commercial** (PicoDrive licence) | `libretro-picodrive`, pinned 1890c29 |
+| 32X | `32X` | `.32x` | PicoDrive | **Non-commercial** (PicoDrive licence) | the same |
+| Pico | `PICO` | `.md` `.bin` | PicoDrive | **Non-commercial** (PicoDrive licence) | the same |
 | Game Gear | `GG` | `.gg` | Gearsystem | GPL-3.0 | `libretro-gearsystem`, pinned 66fe790 |
 | Master System | `SMS` | `.sms` | Gearsystem | GPL-3.0 | the same |
 | SG-1000 | `SG1000` | `.sg` | Gearsystem | GPL-3.0 | the same |
@@ -32,20 +35,29 @@ game; disc systems never do.
 Each core has a small package of nibcase's, `nibcase-<core>` (`nibcase-snes9x`,
 `nibcase-nestopia`, `nibcase-blastem`, `nibcase-gearsystem`, `nibcase-handy`, `nibcase-gw`,
 `nibcase-beetle-pce-fast`, `nibcase-beetle-ngp`, `nibcase-beetle-wswan`,
-`nibcase-pcsx-rearmed`, `nibcase-ppsspp`, `nibcase-fbneo`), which depends on the core's and registers it with DSlot: an alpm hook
+`nibcase-pcsx-rearmed`, `nibcase-ppsspp`, `nibcase-fbneo`, `nibcase-picodrive`), which depends on the core's and registers it with DSlot: an alpm hook
 runs `nibcase-test --sync`, which asks the installed core for its options and writes
 `/usr/share/dslot/emulators/nibcase-<core>.toml`, with one `[systems]` entry for each system the
 core plays. Pinned cores are built from `packaging/cores/<core>/PKGBUILD`. The frontend never
 contains a core.
 
-**Licences.** nibcase is MIT; each core keeps its own. **Snes9x and FinalBurn Neo
-are non-commercial**: neither may be part of any commercial distribution, and FinalBurn Neo's
+**Licences.** nibcase is MIT; each core keeps its own. **Snes9x, FinalBurn Neo and PicoDrive
+are non-commercial**: none may be part of any commercial distribution, and FinalBurn Neo's
 licence also forbids asking for donations for a project that uses its source. Every other core
 listed is free (GPL-2.0, GPL-3.0 or Zlib) and may be distributed with the usual obligations
 (the core's source for the GPL ones).
 
-**`.chd` and `.cue`** belong to PC Engine CD and PlayStation both, and `.chd` and `.pbp` to the
-PSP too: the folder decides which.
+**`.chd` and `.cue`** belong to PC Engine CD, Mega-CD and PlayStation, and `.chd` and `.pbp` to
+the PSP too: the folder decides which. A Pico cart is a Mega Drive dump, known by its folder too.
+
+**PicoDrive** is the Mega Drive's default (its description's priority 90, BlastEm's 80): on the
+RG DS+ it takes about half BlastEm's time a frame (Sonic 5.5 ms against 9.7, BlastEm now and then
+over 16.7). BlastEm, the more accurate, is a game's other choice in DSlot's Emulator row. PicoDrive
+plays the Master System, Game Gear and SG-1000 too, second to Gearsystem (100), which has half a
+frame to spare there and is the more accurate. It is the only core for the Mega-CD (the
+BIOS is the player's own, the discs' region's: `bios_CD_U.bin`, `bios_CD_E.bin` or
+`bios_CD_J.bin`; nibcase names them rather than start without one), the 32X (its SH-2s through
+the core's recompiler) and the Pico.
 
 **RetroAchievements** (Casual) are earned for SNES, NES, Mega Drive, Game Gear, Lynx and
 PlayStation, the systems checked on the device, and the PSP, whose memory map was checked but not

@@ -1,0 +1,27 @@
+# Pinned upstream core, built separately from the MIT nibcase frontend.
+# Mega Drive, Mega-CD, 32X, Pico, Master System, Game Gear and SG-1000. Non-commercial (PicoDrive
+# licence, COPYING): Arch Linux ARM's own package labels it BSD-3-Clause, which it isn't.
+pkgname=libretro-picodrive
+pkgver=20260926
+pkgrel=1
+pkgdesc='PicoDrive (Sega 8- and 16-bit, Mega-CD, 32X, Pico) libretro core for nibOS'
+arch=(aarch64)
+url='https://github.com/libretro/picodrive'
+license=(LicenseRef-PicoDrive)
+depends=(glibc)
+makedepends=(git)
+source=("picodrive::git+https://github.com/libretro/picodrive.git#commit=1890c2932234c9d30f4cd3851d02228baae8f09e")
+sha256sums=('SKIP')
+prepare() {
+    cd "$srcdir/picodrive"
+    git submodule update --init --recursive
+}
+build() {
+    # platform=unix on aarch64: the SH-2 (32X) recompiler is on, as for every aarch64 build.
+    make -C "$srcdir/picodrive" -f Makefile.libretro platform=unix \
+        CC='gcc -mcpu=cortex-a55' CXX='g++ -mcpu=cortex-a55' -j"$(nproc)"
+}
+package() {
+    install -Dm755 "$srcdir/picodrive/picodrive_libretro.so" "$pkgdir/usr/lib/libretro/picodrive_libretro.so"
+    install -Dm644 "$srcdir/picodrive/COPYING" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+}
