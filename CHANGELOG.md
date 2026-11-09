@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **Clear resume state** on DSlot's Game page for every nibcase core: it deletes the game's
+  resume point for the core playing it (one set aside for another core stays), so a game whose
+  resume point is stuck can start afresh.
 - **PlayStation playlists written for a card's root**: an `.m3u` naming its discs
   `/_hidden/multi-disc/…` finds them beside the playlist (the core gets a resolved copy in the
   private runtime folder; the player's file is unchanged and the game keeps its saves).

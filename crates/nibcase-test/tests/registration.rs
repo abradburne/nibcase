@@ -66,6 +66,10 @@ fn generate_validate_update_and_remove_only_owned_descriptions() {
         .find(|o| o.def.key == "nibcase-snes9x.fixture_format")
         .unwrap();
     assert_eq!(option.def.label, "Pixel format");
+    // The Game page can clear the resume point (this core's only), to start a game afresh.
+    let clear = emulator.actions.iter().find(|a| a.applies("SFC")).unwrap();
+    assert_eq!(clear.label, "Clear resume state");
+    assert_eq!(clear.delete, ["{saves}/*.auto.state"]);
     let stamp = std::fs::metadata(&target).unwrap().modified().unwrap();
     sync();
     assert_eq!(

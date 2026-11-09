@@ -377,6 +377,12 @@ fn description(
         })
         .collect();
     doc.insert("options".into(), V::Array(options));
+    // The Game page's way to start a game afresh: its resume point goes. Only this core's: one
+    // set aside for another core is `<ROM name>.auto-<core>.state`, which the pattern misses.
+    let mut clear = toml::Table::new();
+    clear.insert("label".into(), V::String("Clear resume state".into()));
+    clear.insert("delete".into(), array(vec!["{saves}/*.auto.state".into()]));
+    doc.insert("actions".into(), V::Array(vec![V::Table(clear)]));
     Ok(format!(
         "# Generated from {} {} by nibcase-test --describe.\n{}",
         core.info().name,
