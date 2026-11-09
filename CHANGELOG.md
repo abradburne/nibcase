@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+- **A BIOS named another way is found**: `SCPH-5501.BIN` (case, `-`, `_` and spaces aside) is
+  offered to the core as `scph5501.bin` through links in nibcase's own folder; the player's file
+  keeps its name. A PlayStation BIOS named so had been passed over, and games ran on the core's
+  HLE BIOS.
 - **Clear resume state** on DSlot's Game page for every nibcase core: it deletes the game's
   resume point for the core playing it (one set aside for another core stays), so a game whose
   resume point is stuck can start afresh.

@@ -203,6 +203,7 @@ fn run() -> Result<(), String> {
             args.bios.as_deref(),
             &nibkit::paths::rom_roots(),
             &args.system,
+            &nibkit::paths::AppDirs::new("nibcase").data.join("bios"),
         )?,
     };
     // A system that can't start without its BIOS (the Mega-CD's, one a region) says which to
@@ -451,7 +452,51 @@ impl CoreFiles {
 /// BIOS files may live on either card. An explicit directory always wins. A system that needs
 /// one (`System::bios`: Lynx, PC Engine CD, Disk System) uses the card that has it, and doesn't
 /// start without it.
-fn bios_dir(explicit: Option<&Path>, roots: &[PathBuf], system: &str) -> Result<PathBuf, String> {
+/// A BIOS in `dir` named another way than the core looks for it: case, `-`, `_` and spaces
+/// aside (`SCPH-5501.BIN` for `scph5501.bin`). macOS's `._` files beside it are not BIOSes.
+fn renamed_bios<'a>(dir: &Path, wanted: &[&'a str]) -> Option<(&'a str, PathBuf)> {
+    let plain = |s: &str| -> String {
+        s.chars()
+            .filter(|c| !matches!(c, '-' | '_' | ' '))
+            .flat_map(char::to_lowercase)
+            .collect()
+    };
+    let entries: Vec<_> = std::fs::read_dir(dir).ok()?.flatten().collect();
+    wanted.iter().find_map(|want| {
+        entries.iter().find_map(|e| {
+            let name = e.file_name().to_string_lossy().into_owned();
+            (!name.starts_with("._") && plain(&name) == plain(want)).then(|| (*want, e.path()))
+        })
+    })
+}
+
+/// A BIOS folder of nibcase's for a renamed BIOS: links to everything in the card's `from`,
+/// and `want` linked to `found`. The player's files are never renamed.
+fn link_bios(from: &Path, dir: &Path, want: &str, found: &Path) -> Result<PathBuf, String> {
+    let _ = std::fs::remove_dir_all(dir);
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let link = |target: &Path, name: &std::ffi::OsStr| {
+        std::os::unix::fs::symlink(target, dir.join(name))
+            .map_err(|e| format!("{}: {e}", dir.join(name).display()))
+    };
+    for entry in std::fs::read_dir(from)
+        .map_err(|e| e.to_string())?
+        .flatten()
+    {
+        if entry.file_name() != std::ffi::OsStr::new(want) {
+            link(&entry.path(), &entry.file_name())?;
+        }
+    }
+    link(found, std::ffi::OsStr::new(want))?;
+    Ok(dir.to_owned())
+}
+
+fn bios_dir(
+    explicit: Option<&Path>,
+    roots: &[PathBuf],
+    system: &str,
+    links: &Path,
+) -> Result<PathBuf, String> {
     let candidates: Vec<_> = roots
         .iter()
         .filter_map(|p| p.parent())
@@ -464,6 +509,7 @@ fn bios_dir(explicit: Option<&Path>, roots: &[PathBuf], system: &str) -> Result<
             .is_ok_and(|m| m.is_file() && m.len() > 0 && (file != "lynxboot.img" || m.len() == 512))
     };
     let optional = System::from_id(system).map_or(&[][..], System::optional_bios);
+    let wanted: Vec<&str> = needed.into_iter().chain(optional.iter().copied()).collect();
     let bios = explicit
         .map(Path::to_owned)
         .or_else(|| {
@@ -476,6 +522,16 @@ fn bios_dir(explicit: Option<&Path>, roots: &[PathBuf], system: &str) -> Result<
                 .iter()
                 .find(|p| optional.iter().any(|f| usable(p, f)))
                 .cloned()
+        })
+        // One named another way (`SCPH-5501.BIN`): the core gets it under the name it looks for.
+        .or_else(|| {
+            candidates.iter().find_map(|dir| {
+                let (want, found) = renamed_bios(dir, &wanted)?;
+                let path = found.clone();
+                usable(dir, &found.file_name()?.to_string_lossy())
+                    .then(|| link_bios(dir, &links.join(system), want, &path).ok())
+                    .flatten()
+            })
         })
         .or_else(|| candidates.first().cloned())
         .unwrap_or_else(|| nibkit::paths::AppDirs::new("nibcase").data.join("bios"));
@@ -1254,29 +1310,46 @@ mod tests {
         let temp = std::env::temp_dir().join(format!("nibcase-bios-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&temp);
         let roots = [temp.join("one/Roms"), temp.join("two/Roms")];
+        let links = temp.join("links");
         let second = temp.join("two/BIOS");
         std::fs::create_dir_all(&second).unwrap();
-        assert!(bios_dir(None, &roots, "LYNX").is_err());
+        assert!(bios_dir(None, &roots, "LYNX", &links).is_err());
         let first = temp.join("one/BIOS");
         std::fs::create_dir_all(&first).unwrap();
         std::fs::write(first.join("lynxboot.img"), b"short").unwrap();
         std::fs::write(second.join("lynxboot.img"), [0; 512]).unwrap();
-        assert_eq!(bios_dir(None, &roots, "LYNX").unwrap(), second);
-        assert!(bios_dir(Some(&temp.join("missing")), &roots, "LYNX").is_err());
-        assert_eq!(bios_dir(None, &roots, "GG").unwrap(), temp.join("one/BIOS"));
+        assert_eq!(bios_dir(None, &roots, "LYNX", &links).unwrap(), second);
+        assert!(bios_dir(Some(&temp.join("missing")), &roots, "LYNX", &links).is_err());
+        assert_eq!(
+            bios_dir(None, &roots, "GG", &links).unwrap(),
+            temp.join("one/BIOS")
+        );
         // The Disk System's BIOS, on the first card only.
-        assert!(bios_dir(None, &roots, "FDS")
+        assert!(bios_dir(None, &roots, "FDS", &links)
             .unwrap_err()
             .contains("disksys.rom"));
         std::fs::write(temp.join("one/BIOS/disksys.rom"), [1; 8192]).unwrap();
         assert_eq!(
-            bios_dir(None, &roots, "FDS").unwrap(),
+            bios_dir(None, &roots, "FDS", &links).unwrap(),
             temp.join("one/BIOS")
         );
         // A PlayStation BIOS is optional: the card that has one, else the first.
-        assert_eq!(bios_dir(None, &roots, "PS").unwrap(), temp.join("one/BIOS"));
+        assert_eq!(
+            bios_dir(None, &roots, "PS", &links).unwrap(),
+            temp.join("one/BIOS")
+        );
         std::fs::write(second.join("scph5501.bin"), [1; 16]).unwrap();
-        assert_eq!(bios_dir(None, &roots, "PS").unwrap(), second);
+        assert_eq!(bios_dir(None, &roots, "PS", &links).unwrap(), second);
+        // A BIOS named another way is offered under the core's name, through links of nibcase's;
+        // the player's file keeps its name, and macOS's `._` copy beside it is passed over.
+        std::fs::remove_file(second.join("scph5501.bin")).unwrap();
+        std::fs::write(first.join("._SCPH-5501.BIN"), [0; 4096]).unwrap();
+        std::fs::write(first.join("SCPH-5501.BIN"), [2; 16]).unwrap();
+        let dir = bios_dir(None, &roots, "PS", &links).unwrap();
+        assert_eq!(dir, links.join("PS"));
+        assert_eq!(std::fs::read(dir.join("scph5501.bin")).unwrap(), [2; 16]);
+        assert_eq!(std::fs::read(dir.join("disksys.rom")).unwrap(), [1; 8192]);
+        assert!(first.join("SCPH-5501.BIN").is_file() && !first.join("scph5501.bin").exists());
         std::fs::remove_dir_all(temp).unwrap();
     }
 
