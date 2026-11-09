@@ -167,6 +167,56 @@ pub fn peek(path: &Path, extensions: &[&str]) -> Result<Vec<u8>, String> {
         .map_err(|e| e.to_string())?;
     Ok(data)
 }
+/// An `.m3u` written for a card's root names its discs `/folder/disc.chd`, meaning the folder
+/// beside the playlist; a core opens that path as it is and finds nothing. Returns the playlist
+/// with every disc as a full path when a `/` entry is missing but is there beside the playlist,
+/// or `None` when the playlist can be handed over unchanged.
+fn resolve_playlist(path: &Path, text: &str) -> Option<String> {
+    let dir = path.parent()?;
+    fn entry(line: &str) -> Option<&str> {
+        let line = line.trim();
+        (!line.is_empty() && !line.starts_with('#')).then_some(line)
+    }
+    let rooted_elsewhere = |line: &str| {
+        let disc = Path::new(line);
+        disc.is_absolute() && !disc.exists() && dir.join(line.trim_start_matches('/')).exists()
+    };
+    if !text.lines().filter_map(entry).any(rooted_elsewhere) {
+        return None;
+    }
+    let mut out = String::new();
+    for line in text.lines() {
+        match entry(line) {
+            Some(disc) if rooted_elsewhere(disc) => {
+                out.push_str(&dir.join(disc.trim_start_matches('/')).to_string_lossy());
+            }
+            Some(disc) if Path::new(disc).is_relative() => {
+                out.push_str(&dir.join(disc).to_string_lossy());
+            }
+            _ => out.push_str(line.trim_end_matches('\r')),
+        }
+        out.push('\n');
+    }
+    Some(out)
+}
+
+/// A folder only this process can read, in the runtime directory, for files made for the core.
+fn private_dir() -> Result<PathBuf, String> {
+    let dir = std::env::var_os("XDG_RUNTIME_DIR")
+        .map(PathBuf::from)
+        .unwrap_or_else(std::env::temp_dir);
+    // A private directory prevents collisions and symlink attacks.
+    let dir = dir.join(format!("nibcase-{}", std::process::id()));
+    std::fs::create_dir(&dir).map_err(|e| format!("create runtime folder: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
+            .map_err(|e| e.to_string())?;
+    }
+    Ok(dir)
+}
+
 fn content_hash(data: &[u8]) -> u64 {
     data.iter().fold(0xcbf29ce484222325, |h, b| {
         (h ^ u64::from(*b)).wrapping_mul(0x100000001b3)
@@ -656,18 +706,7 @@ impl Core {
                     return Err("ZIP content exceeds limit".into());
                 }
                 if self.info.need_fullpath {
-                    let dir = std::env::var_os("XDG_RUNTIME_DIR")
-                        .map(PathBuf::from)
-                        .unwrap_or_else(std::env::temp_dir);
-                    // A private directory prevents collisions and symlink attacks during extraction.
-                    let dir = dir.join(format!("nibcase-{}", std::process::id()));
-                    std::fs::create_dir(&dir).map_err(|e| format!("create runtime folder: {e}"))?;
-                    #[cfg(unix)]
-                    {
-                        use std::os::unix::fs::PermissionsExt;
-                        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700))
-                            .map_err(|e| e.to_string())?;
-                    }
+                    let dir = private_dir()?;
                     self.extracted = Some(dir.clone());
                     actual_path = dir.join(format!("content.{ext}"));
                     std::fs::write(&actual_path, &self.content).map_err(|e| e.to_string())?;
@@ -679,6 +718,24 @@ impl Core {
             }
             if !found {
                 return Err("ZIP contains no ROM supported by this core".into());
+            }
+        } else if self.info.need_fullpath
+            && path
+                .extension()
+                .is_some_and(|s| s.eq_ignore_ascii_case("m3u"))
+        {
+            // The player's playlist is never changed: a resolved copy goes to the core, under
+            // the same name (cores name memory cards after it), and the game stays known by
+            // the player's file.
+            let original = std::fs::read(path).map_err(|e| e.to_string())?;
+            if let Some(resolved) = resolve_playlist(path, &String::from_utf8_lossy(&original)) {
+                let dir = private_dir()?;
+                self.extracted = Some(dir.clone());
+                actual_path = dir.join(path.file_name().ok_or("playlist has no name")?);
+                std::fs::write(&actual_path, resolved).map_err(|e| e.to_string())?;
+                let mut data = original;
+                data.extend_from_slice(&(data.len() as u64).to_le_bytes());
+                self.game_hash = content_hash(&data);
             }
         } else if !self.info.need_fullpath {
             let file = std::fs::File::open(path).map_err(|e| e.to_string())?;
@@ -1111,4 +1168,35 @@ unsafe extern "C" fn input_state(port: u32, device: u32, index: u32, id: u32) ->
             0
         }
     })
+}
+
+#[cfg(test)]
+mod playlist_tests {
+    use super::resolve_playlist;
+    use std::path::Path;
+
+    #[test]
+    fn discs_named_from_the_card_root_are_found_beside_the_playlist() {
+        let dir = std::env::temp_dir().join(format!("nibcase-m3u-{}", std::process::id()));
+        let discs = dir.join("_hidden/multi-disc");
+        std::fs::create_dir_all(&discs).unwrap();
+        std::fs::write(discs.join("Game (Disc 1).chd"), b"").unwrap();
+        std::fs::write(dir.join("Game (Disc 2).chd"), b"").unwrap();
+        let m3u = dir.join("Game.m3u");
+        let text = "/_hidden/multi-disc/Game (Disc 1).chd\r\n# a note\nGame (Disc 2).chd\n";
+        let resolved = resolve_playlist(&m3u, text).expect("resolved");
+        let d = dir.display();
+        assert_eq!(
+            resolved,
+            format!("{d}/_hidden/multi-disc/Game (Disc 1).chd\n# a note\n{d}/Game (Disc 2).chd\n")
+        );
+        // A playlist whose discs are where it says is handed over as it is.
+        assert_eq!(resolve_playlist(&m3u, "Game (Disc 2).chd\n"), None);
+        let abs = format!("{d}/Game (Disc 2).chd\n");
+        assert_eq!(resolve_playlist(&m3u, &abs), None);
+        // A `/` path found nowhere is left for the core to report.
+        assert_eq!(resolve_playlist(&m3u, "/nowhere/Game.chd\n"), None);
+        assert_eq!(resolve_playlist(Path::new("Game.m3u"), "/x.chd\n"), None);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 }

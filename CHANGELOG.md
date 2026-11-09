@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- **PlayStation playlists written for a card's root**: an `.m3u` naming its discs
+  `/_hidden/multi-disc/…` finds them beside the playlist (the core gets a resolved copy in the
+  private runtime folder; the player's file is unchanged and the game keeps its saves).
 - `NIBCASE_DEBUG=frames` times presenting apart from drawing: `drawing` is the work of drawing
   both panels, `presenting` the wait for their refresh. With vsync the wait took a frame's
   spare time and was counted as drawing, so a quick frame's drawing seemed to jump from about
