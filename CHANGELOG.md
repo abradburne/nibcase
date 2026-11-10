@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.1
 
 - **A BIOS named another way is found**: `SCPH-5501.BIN` (case, `-`, `_` and spaces aside) is
   offered to the core as `scph5501.bin` through links in nibcase's own folder; the player's file
