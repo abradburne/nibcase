@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.2
+
+- Cargo.lock names the workspace's crates at its version: 0.3.1's still had nibcase-libretro and
+  nibcase-test at 0.3.0, so its package did not build with `--locked`.
+
 ## 0.3.1
 
 - **A BIOS named another way is found**: `SCPH-5501.BIN` (case, `-`, `_` and spaces aside) is

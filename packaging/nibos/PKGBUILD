@@ -13,7 +13,7 @@
 # in, as CONTRIBUTING.md describes; Cargo.lock's nibkit is then replaced in the copy here).
 pkgbase=nibcase
 pkgname=(nibcase nibcase-snes9x nibcase-nestopia nibcase-blastem nibcase-gearsystem nibcase-handy nibcase-gw nibcase-beetle-pce-fast nibcase-beetle-ngp nibcase-beetle-wswan nibcase-pcsx-rearmed nibcase-ppsspp nibcase-fbneo nibcase-picodrive)
-pkgver=0.3.1
+pkgver=0.3.2
 pkgrel=1
 arch=(aarch64)
 url='https://github.com/abradburne/nibcase'
