@@ -115,16 +115,37 @@ impl Input {
             Event::ControllerButtonDown { button, .. } => (pad(button)?, true),
             Event::ControllerButtonUp { button, .. } => (pad(button)?, false),
             Event::ControllerAxisMotion { axis, value, .. } => {
-                let index = match axis {
-                    Axis::LeftX => 0,
-                    Axis::LeftY => 1,
+                match axis {
+                    Axis::LeftX => {
+                        self.analog[0] = if value.unsigned_abs() < 4000 {
+                            0
+                        } else {
+                            value
+                        };
+                    }
+                    Axis::LeftY => {
+                        self.analog[1] = if value.unsigned_abs() < 4000 {
+                            0
+                        } else {
+                            value
+                        };
+                    }
+                    Axis::TriggerLeft => {
+                        if value > 12000 {
+                            self.digital |= 1 << RETRO_DEVICE_ID_JOYPAD_L2;
+                        } else {
+                            self.digital &= !(1 << RETRO_DEVICE_ID_JOYPAD_L2);
+                        }
+                    }
+                    Axis::TriggerRight => {
+                        if value > 12000 {
+                            self.digital |= 1 << RETRO_DEVICE_ID_JOYPAD_R2;
+                        } else {
+                            self.digital &= !(1 << RETRO_DEVICE_ID_JOYPAD_R2);
+                        }
+                    }
                     _ => return None,
-                };
-                self.analog[index] = if value.unsigned_abs() < 4000 {
-                    0
-                } else {
-                    value
-                };
+                }
                 return None;
             }
             Event::FingerDown { x, y, .. } => {
